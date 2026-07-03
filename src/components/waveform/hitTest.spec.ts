@@ -6,7 +6,7 @@ import { boundaryIndexAtPx, segmentIndexAtPx } from "./hitTest";
 const seg = (start: number, end: number): AnnotationSegment => ({
   range: makeTimeRange(start, end),
   transcription: "",
-  freeTranslation: ""
+  freeTranslation: "",
 });
 
 describe("boundaryIndexAtPx", () => {

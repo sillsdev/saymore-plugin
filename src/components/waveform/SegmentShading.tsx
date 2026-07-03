@@ -36,10 +36,10 @@ export const SegmentShading = observer(function SegmentShading(props: {
             `}
             style={{
               left: viewport.secondsToPx(seg.range.start),
-              width: viewport.secondsToPx(seg.range.end - seg.range.start)
+              width: viewport.secondsToPx(seg.range.end - seg.range.start),
             }}
           />
-        ) : null
+        ) : null,
       )}
     </>
   );

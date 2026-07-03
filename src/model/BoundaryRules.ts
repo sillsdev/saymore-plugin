@@ -17,7 +17,7 @@ export enum BoundaryResult {
   SegmentNotFound = "SegmentNotFound",
   SegmentWillBeTooShort = "SegmentWillBeTooShort",
   NextSegmentWillBeTooShort = "NextSegmentWillBeTooShort",
-  BlockedByOralAnnotations = "BlockedByOralAnnotations"
+  BlockedByOralAnnotations = "BlockedByOralAnnotations",
 }
 
 export interface BoundaryEdit {
@@ -34,7 +34,7 @@ const MIN_SEC = MIN_SEGMENT_LENGTH_MS / 1000;
 export function isAcceptableSegmentLength(
   startSec: number,
   endSec: number,
-  minMs = MIN_SEGMENT_LENGTH_MS
+  minMs = MIN_SEGMENT_LENGTH_MS,
 ): boolean {
   return Math.round(((endSec - startSec) * 1000 - minMs) * 100) >= 0;
 }
@@ -48,7 +48,7 @@ function seg(
   startSec: number,
   endSec: number,
   transcription = "",
-  freeTranslation = ""
+  freeTranslation = "",
 ): AnnotationSegment {
   return { range: makeTimeRange(startSec, endSec), transcription, freeTranslation };
 }
@@ -56,7 +56,7 @@ function seg(
 /** Index of the segment whose END equals `boundarySec` (ms-granular), or -1. */
 export function indexOfSegmentEndingAt(
   segments: readonly AnnotationSegment[],
-  boundarySec: number
+  boundarySec: number,
 ): number {
   return segments.findIndex((s) => msEquals(s.range.end, boundarySec));
 }
@@ -69,7 +69,7 @@ export function indexOfSegmentEndingAt(
  */
 export function insertBoundary(
   segments: readonly AnnotationSegment[],
-  boundarySec: number
+  boundarySec: number,
 ): BoundaryEdit {
   if (boundarySec <= 0) {
     return { result: BoundaryResult.SegmentWillBeTooShort, segments };
@@ -80,9 +80,7 @@ export function insertBoundary(
   }
 
   // Enclosing segment: Start <= b <= End (inclusive), matching C# Contains(_, true).
-  const i = segments.findIndex(
-    (s) => s.range.start <= boundarySec && s.range.end >= boundarySec
-  );
+  const i = segments.findIndex((s) => s.range.start <= boundarySec && s.range.end >= boundarySec);
 
   if (i === -1) {
     // Append case: new segment [lastEnd, boundary].
@@ -92,7 +90,7 @@ export function insertBoundary(
     }
     return {
       result: BoundaryResult.Success,
-      segments: [...segments, seg(newStart, boundarySec)]
+      segments: [...segments, seg(newStart, boundarySec)],
     };
   }
 
@@ -119,7 +117,7 @@ export function insertBoundary(
 export function moveBoundary(
   segments: readonly AnnotationSegment[],
   index: number,
-  newEndSec: number
+  newEndSec: number,
 ): BoundaryEdit {
   if (index < 0 || index >= segments.length) {
     return { result: BoundaryResult.SegmentNotFound, segments };
@@ -150,7 +148,7 @@ export function clampBoundaryPosition(
   segments: readonly AnnotationSegment[],
   index: number,
   desiredSec: number,
-  durationSec: number
+  durationSec: number,
 ): number {
   const cur = segments[index];
   const lo = cur.range.start + MIN_SEC;
@@ -168,7 +166,7 @@ export function nudgeBoundary(
   segments: readonly AnnotationSegment[],
   index: number,
   deltaMs: number,
-  durationSec: number
+  durationSec: number,
 ): BoundaryEdit {
   if (index < 0 || index >= segments.length) {
     return { result: BoundaryResult.SegmentNotFound, segments };
@@ -185,7 +183,7 @@ function joinText(
   fromText: string,
   toText: string,
   fromIsLast: boolean,
-  fromBeforeTo: boolean
+  fromBeforeTo: boolean,
 ): string {
   let f = (fromText ?? "").trim();
   let tt = (toText ?? "").trim();
@@ -202,10 +200,7 @@ function joinText(
  * segment absorbs its time; its text is joined into the neighbor (next segment,
  * or the previous one when deleting the last). Mirrors RemoveTierSegments.
  */
-export function deleteSegment(
-  segments: readonly AnnotationSegment[],
-  index: number
-): BoundaryEdit {
+export function deleteSegment(segments: readonly AnnotationSegment[], index: number): BoundaryEdit {
   if (index < 0 || index >= segments.length) {
     return { result: BoundaryResult.SegmentNotFound, segments };
   }
@@ -228,19 +223,19 @@ export function deleteSegment(
       removed.transcription,
       target.transcription,
       isLast,
-      !isLast
+      !isLast,
     );
     const mergedFreeTranslation = joinText(
       removed.freeTranslation,
       target.freeTranslation,
       isLast,
-      !isLast
+      !isLast,
     );
     next[joinTo] = seg(
       target.range.start,
       target.range.end,
       mergedTranscription,
-      mergedFreeTranslation
+      mergedFreeTranslation,
     );
   }
 
@@ -257,7 +252,7 @@ export function deleteSegment(
  */
 export function addFinalSegmentIfAlmostComplete(
   segments: readonly AnnotationSegment[],
-  durationSec: number
+  durationSec: number,
 ): readonly AnnotationSegment[] {
   if (segments.length === 0) return segments;
   const last = segments[segments.length - 1];
@@ -270,7 +265,7 @@ export function addFinalSegmentIfAlmostComplete(
       last.range.start,
       durationSec,
       last.transcription,
-      last.freeTranslation
+      last.freeTranslation,
     );
   } else {
     next.push(seg(last.range.end, durationSec, IGNORE_MARKER, ""));
@@ -284,13 +279,13 @@ export function addFinalSegmentIfAlmostComplete(
  */
 export function trimSegmentsToDuration(
   segments: readonly AnnotationSegment[],
-  durationSec: number
+  durationSec: number,
 ): readonly AnnotationSegment[] {
   return segments
     .filter((s) => s.range.start <= durationSec)
     .map((s) =>
       s.range.end > durationSec
         ? seg(s.range.start, durationSec, s.transcription, s.freeTranslation)
-        : s
+        : s,
     );
 }

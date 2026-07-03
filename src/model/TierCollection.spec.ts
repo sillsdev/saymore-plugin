@@ -8,7 +8,7 @@ import type { AnnotationSegment } from "./AnnotationSegment";
 const seg = (start: number, end: number, tx = "", ft = ""): AnnotationSegment => ({
   range: makeTimeRange(start, end),
   transcription: tx,
-  freeTranslation: ft
+  freeTranslation: ft,
 });
 
 describe("TierCollection", () => {

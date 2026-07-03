@@ -43,7 +43,7 @@ export const BoundaryLayer = observer(function BoundaryLayer(props: {
       startClientX: e.clientX,
       startEnd: segments[index].range.end,
       currentSec: segments[index].range.end,
-      moved: false
+      moved: false,
     });
   }
 
@@ -55,7 +55,7 @@ export const BoundaryLayer = observer(function BoundaryLayer(props: {
     setDrag({
       ...drag,
       currentSec: clamped,
-      moved: drag.moved || Math.abs(deltaPx) > DRAG_DEAD_ZONE_PX
+      moved: drag.moved || Math.abs(deltaPx) > DRAG_DEAD_ZONE_PX,
     });
   }
 

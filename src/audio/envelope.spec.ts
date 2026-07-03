@@ -9,11 +9,7 @@ function loadWav(name: string): Uint8Array {
 }
 
 /** Build a minimal canonical PCM16 WAV from interleaved integer samples. */
-function buildWavPcm16(
-  sampleRate: number,
-  interleaved: number[],
-  numChannels = 1
-): Uint8Array {
+function buildWavPcm16(sampleRate: number, interleaved: number[], numChannels = 1): Uint8Array {
   const bytesPerSample = 2;
   const blockAlign = numChannels * bytesPerSample;
   const dataLen = interleaved.length * bytesPerSample;
@@ -149,9 +145,7 @@ describe("computeEnvelope dispatch & helpers", () => {
   it("throws a clear error when compressed decode has no AudioContext", async () => {
     // A non-WAV blob in node (no AudioContext) must surface a clear message.
     const notWav = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0, 0, 0, 0, 0, 0, 0, 0]);
-    await expect(computeEnvelope(notWav, "audio/mpeg")).rejects.toThrow(
-      /browser AudioContext/i
-    );
+    await expect(computeEnvelope(notWav, "audio/mpeg")).rejects.toThrow(/browser AudioContext/i);
   });
 
   it("rejects an unsupported bit depth with a clear error", () => {

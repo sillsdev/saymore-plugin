@@ -9,17 +9,14 @@ interface ParityRow {
   invariant: string;
   deDE: string;
 }
-const table = JSON.parse(
-  readFileSync(testDataPath("csfloat", "csfloat-parity.json"), "utf8")
-) as { entries: ParityRow[] };
+const table = JSON.parse(readFileSync(testDataPath("csfloat", "csfloat-parity.json"), "utf8")) as {
+  entries: ParityRow[];
+};
 
 describe("csFloat net48 parity", () => {
-  it.each(table.entries)(
-    "csFloatToString($input) === '$invariant'",
-    ({ input, invariant }) => {
-      expect(csFloatToString(input)).toBe(invariant);
-    }
-  );
+  it.each(table.entries)("csFloatToString($input) === '$invariant'", ({ input, invariant }) => {
+    expect(csFloatToString(input)).toBe(invariant);
+  });
 
   it.each(table.entries)(
     "parseCsFloat reads '.' and ',' forms of $input to the same token value",
@@ -29,7 +26,7 @@ describe("csFloat net48 parity", () => {
       const tokenValue = Number(invariant);
       expect(parseCsFloat(invariant)).toBe(tokenValue);
       expect(parseCsFloat(deDE)).toBe(tokenValue);
-    }
+    },
   );
 
   it("integers get no decimal point", () => {

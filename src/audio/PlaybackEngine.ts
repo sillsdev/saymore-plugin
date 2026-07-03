@@ -120,7 +120,7 @@ function createAudioElement(url: string): HTMLAudioElement {
     return el;
   }
   throw new Error(
-    "MediaElementPlaybackEngine requires a browser environment (no Audio/document available)."
+    "MediaElementPlaybackEngine requires a browser environment (no Audio/document available).",
   );
 }
 
@@ -145,7 +145,6 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
   private stopRequested = false;
   /** Resolver/pauser for the range currently playing; invoked by stop(). */
   private finishActive: (() => void) | null = null;
-  private activeEl: HTMLMediaElement | null = null;
 
   constructor(source: string | HTMLMediaElement) {
     if (typeof source === "string") {
@@ -157,13 +156,7 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
     }
     makeAutoObservable<
       MediaElementPlaybackEngine,
-      | "mainEl"
-      | "ownsMainEl"
-      | "extraEls"
-      | "rafId"
-      | "stopRequested"
-      | "finishActive"
-      | "activeEl"
+      "mainEl" | "ownsMainEl" | "extraEls" | "rafId" | "stopRequested" | "finishActive"
     >(this, {
       mainEl: false,
       ownsMainEl: false,
@@ -171,7 +164,6 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
       rafId: false,
       stopRequested: false,
       finishActive: false,
-      activeEl: false
     });
   }
 
@@ -215,11 +207,10 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
     el: HTMLMediaElement,
     range: TimeRange | undefined,
     rate: number,
-    loops: number
+    loops: number,
   ): Promise<void> {
     return new Promise<void>((resolve) => {
       this.stopRequested = false;
-      this.activeEl = el;
       el.playbackRate = rate;
       const start = range?.start ?? 0;
       const end = range?.end;
@@ -234,7 +225,6 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
           /* element may already be detached */
         }
         this.setPlayingState(false);
-        this.activeEl = null;
         resolve();
       };
 
@@ -285,12 +275,7 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
 
   play(range?: TimeRange, opts?: PlayOptions): Promise<void> {
     this.stop();
-    return this.playRangeOnElement(
-      this.mainEl,
-      range,
-      clampRate(opts?.rate),
-      opts?.maxLoops ?? 1
-    );
+    return this.playRangeOnElement(this.mainEl, range, clampRate(opts?.rate), opts?.maxLoops ?? 1);
   }
 
   async playSequence(sources: PlaySource[], opts?: PlayOptions): Promise<void> {

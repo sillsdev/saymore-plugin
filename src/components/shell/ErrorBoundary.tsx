@@ -33,7 +33,13 @@ export class ErrorBoundary extends Component<
           `}
         >
           <h2>Something went wrong</h2>
-          <pre css={css`white-space: pre-wrap;`}>{String(this.state.error.message)}</pre>
+          <pre
+            css={css`
+              white-space: pre-wrap;
+            `}
+          >
+            {String(this.state.error.message)}
+          </pre>
         </div>
       );
     }

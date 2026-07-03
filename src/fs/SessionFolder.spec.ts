@@ -4,11 +4,7 @@ import { InMemoryAdapter } from "./InMemoryAdapter";
 
 describe("findMediaFile", () => {
   it("prefers *_StandardAudio.wav", () => {
-    const names = [
-      "recording.mp4",
-      "recording_StandardAudio.wav",
-      "recording.mp4.annotations.eaf"
-    ];
+    const names = ["recording.mp4", "recording_StandardAudio.wav", "recording.mp4.annotations.eaf"];
     expect(findMediaFile(names)).toBe("recording_StandardAudio.wav");
   });
 
@@ -16,7 +12,7 @@ describe("findMediaFile", () => {
     const names = [
       "longerSound.wav",
       "longerSound.wav.annotations.eaf",
-      "longerSound.wav_Annotations/0.75_to_1.25_Careful.wav"
+      "longerSound.wav_Annotations/0.75_to_1.25_Careful.wav",
     ];
     expect(findMediaFile(names)).toBe("longerSound.wav");
   });
@@ -34,7 +30,7 @@ describe("SessionFolder", () => {
   it("derives eaf + annotations folder names and opens over an adapter", async () => {
     const a = new InMemoryAdapter({
       "longerSound.wav": new Uint8Array([1]),
-      "longerSound.wav.annotations.eaf": "<xml/>"
+      "longerSound.wav.annotations.eaf": "<xml/>",
     });
     const session = await SessionFolder.open(a);
     expect(session?.mediaFileName).toBe("longerSound.wav");

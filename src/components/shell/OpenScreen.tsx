@@ -44,13 +44,23 @@ export const OpenScreen = observer(function OpenScreen(props: { store: ProjectSt
         line-height: 1.5;
       `}
     >
-      <h1 css={css`font-size: 1.5rem;`}>
+      <h1
+        css={css`
+          font-size: 1.5rem;
+        `}
+      >
         {t("app.title", "lameta Audio Annotation — Manual Segmenter")}
       </h1>
 
       {store.loading && <p>{t("open.loading", "Loading…")}</p>}
       {store.error && (
-        <p css={css`color: #c62828;`}>{store.error}</p>
+        <p
+          css={css`
+            color: #c62828;
+          `}
+        >
+          {store.error}
+        </p>
       )}
 
       <div
@@ -93,7 +103,9 @@ export const OpenScreen = observer(function OpenScreen(props: { store: ProjectSt
           ref={fileInputRef}
           type="file"
           accept="audio/*,.wav"
-          css={css`display: none;`}
+          css={css`
+            display: none;
+          `}
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) void openFile(file);
@@ -101,7 +113,11 @@ export const OpenScreen = observer(function OpenScreen(props: { store: ProjectSt
         />
       </div>
 
-      <div css={css`margin-top: 1.5rem;`}>
+      <div
+        css={css`
+          margin-top: 1.5rem;
+        `}
+      >
         <button
           type="button"
           disabled={!supportsDirectory}
@@ -121,10 +137,15 @@ export const OpenScreen = observer(function OpenScreen(props: { store: ProjectSt
           {t("open.openFolder", "Open a SayMore session folder…")}
         </button>
         {!supportsDirectory && (
-          <p css={css`font-size: 12px; color: #78909c;`}>
+          <p
+            css={css`
+              font-size: 12px;
+              color: #78909c;
+            `}
+          >
             {t(
               "open.noDirectory",
-              "Folder mode needs a Chromium browser (File System Access API). Single-file mode works anywhere."
+              "Folder mode needs a Chromium browser (File System Access API). Single-file mode works anywhere.",
             )}
           </p>
         )}

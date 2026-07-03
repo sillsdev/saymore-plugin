@@ -101,7 +101,7 @@ export class ProjectStore {
         document,
         playback,
         adapter: singleFile ? undefined : adapter,
-        oralIndex
+        oralIndex,
       });
 
       runInAction(() => {

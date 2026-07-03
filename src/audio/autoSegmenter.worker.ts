@@ -1,7 +1,7 @@
 import {
   autoSegmentEnvelope,
   type AutoSegmenterRequest,
-  type AutoSegmenterResponse
+  type AutoSegmenterResponse,
 } from "./autoSegmenter";
 
 /**

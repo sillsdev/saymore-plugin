@@ -54,7 +54,7 @@ export const DEFAULT_AUTO_SEGMENTER_SETTINGS: AutoSegmenterSettings = {
   minSegmentLengthMs: 1000,
   maxSegmentLengthMs: 10000,
   preferredPauseLengthMs: 250,
-  optimumLengthClampingFactor: 4e-6
+  optimumLengthClampingFactor: 4e-6,
 };
 
 /**
@@ -83,7 +83,7 @@ export type AutoSegmenterProgress = (fraction: number) => void;
  */
 export function aggregateSamples(
   source: SampleSource,
-  numberOfSamplesToReturn: number
+  numberOfSamplesToReturn: number,
 ): AggregatedSamples {
   const sampleCount = source.sampleCount;
   const channels = source.channels;
@@ -156,7 +156,7 @@ function computeAdjustedScore(
   rawScores: Float64Array,
   iAdjust: number,
   distanceFactor: number,
-  adjacent: number
+  adjacent: number,
 ): number {
   let score = rawScores[iAdjust];
   for (let i = 1; i <= adjacent; i++) {
@@ -183,7 +183,7 @@ export function getNaturalBreaks(
   samples: AggregatedSamples,
   totalTimeMs: number,
   settings: AutoSegmenterSettings,
-  onProgress?: AutoSegmenterProgress
+  onProgress?: AutoSegmenterProgress,
 ): number[] {
   const breaks: number[] = [];
   let remainingSamples = samples.count;
@@ -192,7 +192,7 @@ export function getNaturalBreaks(
   let lastBreak = 0;
   const millisecondsPerSample = totalTimeMs / remainingSamples;
   const adjacentSamplesToFactorIntoAdjustedScore = Math.floor(
-    settings.preferredPauseLengthMs / millisecondsPerSample
+    settings.preferredPauseLengthMs / millisecondsPerSample,
   );
   const minSamplesPerSegment = Math.floor(settings.minSegmentLengthMs / millisecondsPerSample);
   const maxSamplesPerSegment = Math.floor(settings.maxSegmentLengthMs / millisecondsPerSample);
@@ -224,19 +224,24 @@ export function getNaturalBreaks(
         const distanceFactor = Math.pow(i * settings.optimumLengthClampingFactor + 1, 2);
 
         let iAdjust = idealSegmentLengthInSamples + i - adjacent;
-        let totalNewAdjustedScores = adjustedScores[iAdjust] = computeAdjustedScore(
+        let totalNewAdjustedScores = (adjustedScores[iAdjust] = computeAdjustedScore(
           rawScores,
           iAdjust,
           distanceFactor,
-          adjacent
-        );
+          adjacent,
+        ));
         if (adjustedScores[iAdjust] < bestScore) {
           bestScore = adjustedScores[iAdjust];
           bestBreak = lastBreak + iAdjust;
         }
 
         iAdjust = idealSegmentLengthInSamples - i + adjacent;
-        adjustedScores[iAdjust] = computeAdjustedScore(rawScores, iAdjust, distanceFactor, adjacent);
+        adjustedScores[iAdjust] = computeAdjustedScore(
+          rawScores,
+          iAdjust,
+          distanceFactor,
+          adjacent,
+        );
         totalNewAdjustedScores += adjustedScores[iAdjust];
         if (adjustedScores[iAdjust] < bestScore) {
           bestScore = adjustedScores[iAdjust];
@@ -248,8 +253,7 @@ export function getNaturalBreaks(
         const term = (i - adjacent - 1) >>> 0;
         const samplesInPrevAvg = (1 + ((2 * term) >>> 0)) >>> 0;
         const divisor = (samplesInPrevAvg + 2) >>> 0;
-        averageScore =
-          (averageScore * samplesInPrevAvg + totalNewAdjustedScores) / divisor;
+        averageScore = (averageScore * samplesInPrevAvg + totalNewAdjustedScores) / divisor;
 
         if (
           bestScore < averageScore / 2 &&
@@ -284,7 +288,7 @@ export function getNaturalBreaks(
 export function autoSegment(
   source: SampleSource,
   settings: AutoSegmenterSettings,
-  onProgress?: AutoSegmenterProgress
+  onProgress?: AutoSegmenterProgress,
 ): number[] {
   const requestedSamples = Math.floor(source.totalTimeMs);
   if (requestedSamples <= 0) return [];
@@ -316,7 +320,7 @@ export function envelopeToAggregatedSamples(envelope: Envelope): AggregatedSampl
 export function autoSegmentEnvelope(
   envelope: Envelope,
   settings: AutoSegmenterSettings,
-  onProgress?: AutoSegmenterProgress
+  onProgress?: AutoSegmenterProgress,
 ): number[] {
   const samples = envelopeToAggregatedSamples(envelope);
   if (samples.count <= 0) return [];
@@ -341,6 +345,4 @@ export interface AutoSegmenterResultMessage {
   readonly boundaries: number[];
 }
 
-export type AutoSegmenterResponse =
-  | AutoSegmenterProgressMessage
-  | AutoSegmenterResultMessage;
+export type AutoSegmenterResponse = AutoSegmenterProgressMessage | AutoSegmenterResultMessage;

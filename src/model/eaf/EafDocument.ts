@@ -75,10 +75,7 @@ function childElements(parent: Element | Document, tagName: string): Element[] {
   return out;
 }
 
-function firstChildElement(
-  parent: Element | Document,
-  tagName: string
-): Element | undefined {
+function firstChildElement(parent: Element | Document, tagName: string): Element | undefined {
   return childElements(parent, tagName)[0];
 }
 
@@ -101,7 +98,7 @@ function removeAllChildren(el: Element): void {
 function createElementWithAttrs(
   doc: Document,
   name: string,
-  attrs: Array<[string, string]>
+  attrs: Array<[string, string]>,
 ): Element {
   const el = doc.createElement(name);
   for (const [k, v] of attrs) el.setAttribute(k, v);
@@ -174,7 +171,7 @@ class EafDocumentImpl implements EafDocument {
   /** Find one of SayMore's two owned tiers by case-insensitive TIER_ID. */
   private findTier(tierIdLower: string): Element | undefined {
     return childElements(this.root, "TIER").find(
-      (t) => (t.getAttribute("TIER_ID") ?? "").toLowerCase() === tierIdLower
+      (t) => (t.getAttribute("TIER_ID") ?? "").toLowerCase() === tierIdLower,
     );
   }
 
@@ -191,12 +188,10 @@ class EafDocumentImpl implements EafDocument {
     const descriptors = childElements(header, "MEDIA_DESCRIPTOR");
     if (descriptors.length === 0) return undefined;
     // Primary descriptor = the one without EXTRACTED_FROM (fall back to first).
-    const primary =
-      descriptors.find((d) => !d.getAttribute("EXTRACTED_FROM")) ??
-      descriptors[0];
+    const primary = descriptors.find((d) => !d.getAttribute("EXTRACTED_FROM")) ?? descriptors[0];
     const extracted = descriptors.find((d) => d.getAttribute("EXTRACTED_FROM"));
     const media: EafMediaDescriptor = {
-      mediaUrl: primary.getAttribute("MEDIA_URL") ?? ""
+      mediaUrl: primary.getAttribute("MEDIA_URL") ?? "",
     };
     const mime = primary.getAttribute("MIME_TYPE");
     if (mime) media.mimeType = mime;
@@ -293,7 +288,7 @@ class EafDocumentImpl implements EafDocument {
       segments.push({
         range: makeTimeRange(start, end),
         transcription: valueEl ? elementText(valueEl) : "",
-        freeTranslation: ftByParent.get(id) ?? ""
+        freeTranslation: ftByParent.get(id) ?? "",
       });
     }
     return segments;
@@ -310,7 +305,7 @@ class EafDocumentImpl implements EafDocument {
     const ftTier = this.findTier(FREE_TRANSLATION_TIER);
     if (!transcriptionTier || !ftTier) {
       throw new Error(
-        "writeSegments requires both the Transcription and Phrase Free Translation tiers"
+        "writeSegments requires both the Transcription and Phrase Free Translation tiers",
       );
     }
 
@@ -344,7 +339,7 @@ class EafDocumentImpl implements EafDocument {
       const id = "ts" + nextSlotNumber++;
       const slot = createElementWithAttrs(doc, "TIME_SLOT", [
         ["TIME_SLOT_ID", id],
-        ["TIME_VALUE", String(Math.round(value * 1000))]
+        ["TIME_VALUE", String(Math.round(value * 1000))],
       ]);
       timeOrder.appendChild(doc.createTextNode(slotIndent));
       timeOrder.appendChild(slot);
@@ -360,7 +355,7 @@ class EafDocumentImpl implements EafDocument {
       const alignable = createElementWithAttrs(doc, "ALIGNABLE_ANNOTATION", [
         ["ANNOTATION_ID", transcriptionId],
         ["TIME_SLOT_REF1", startSlot],
-        ["TIME_SLOT_REF2", endSlot]
+        ["TIME_SLOT_REF2", endSlot],
       ]);
       const alignableValue = doc.createElement("ANNOTATION_VALUE");
       alignableValue.appendChild(doc.createTextNode(seg.transcription ?? ""));
@@ -381,7 +376,7 @@ class EafDocumentImpl implements EafDocument {
         const ftId = "a" + ++nextAnnotationId;
         const ref = createElementWithAttrs(doc, "REF_ANNOTATION", [
           ["ANNOTATION_ID", ftId],
-          ["ANNOTATION_REF", transcriptionId]
+          ["ANNOTATION_REF", transcriptionId],
         ]);
         const refValue = doc.createElement("ANNOTATION_VALUE");
         refValue.appendChild(doc.createTextNode(freeTranslation));
@@ -419,7 +414,7 @@ class EafDocumentImpl implements EafDocument {
     if (!header) {
       header = createElementWithAttrs(this.dom, "HEADER", [
         ["MEDIA_FILE", ""],
-        ["TIME_UNITS", "milliseconds"]
+        ["TIME_UNITS", "milliseconds"],
       ]);
       this.root.insertBefore(header, this.root.firstChild);
     }
@@ -442,12 +437,10 @@ class EafDocumentImpl implements EafDocument {
 
   private ensureLastUsedIdProperty(header: Element): void {
     const existing = childElements(header, "PROPERTY").find(
-      (p) => p.getAttribute("NAME") === LAST_USED_ID_PROPERTY
+      (p) => p.getAttribute("NAME") === LAST_USED_ID_PROPERTY,
     );
     if (!existing) {
-      const prop = createElementWithAttrs(this.dom, "PROPERTY", [
-        ["NAME", LAST_USED_ID_PROPERTY]
-      ]);
+      const prop = createElementWithAttrs(this.dom, "PROPERTY", [["NAME", LAST_USED_ID_PROPERTY]]);
       prop.appendChild(this.dom.createTextNode(String(this._lastUsedAnnotationId)));
       header.appendChild(prop);
     }
@@ -455,7 +448,7 @@ class EafDocumentImpl implements EafDocument {
 
   private setLastUsedIdProperty(header: Element, value: number): void {
     const prop = childElements(header, "PROPERTY").find(
-      (p) => p.getAttribute("NAME") === LAST_USED_ID_PROPERTY
+      (p) => p.getAttribute("NAME") === LAST_USED_ID_PROPERTY,
     );
     if (prop) {
       removeAllChildren(prop);
@@ -489,7 +482,11 @@ class EafDocumentImpl implements EafDocument {
   }
 
   serialize(): string {
-    const body = new XMLSerializer().serializeToString(this.dom);
+    // `this.dom` is typed as the lib.dom `Document` (parse() casts the xmldom
+    // node across that boundary); cast back to xmldom's node type here.
+    const body = new XMLSerializer().serializeToString(
+      this.dom as unknown as Parameters<XMLSerializer["serializeToString"]>[0],
+    );
     // xmldom does not emit the XML declaration; prepend it to match SayMore.
     if (body.startsWith("<?xml")) return body;
     return XML_DECLARATION + "\n" + body;
@@ -508,10 +505,7 @@ export function loadEaf(xml: string): EafDocument {
 }
 
 /** Seed a new document from `annotationTemplate.etf`, setting the media filename. */
-export function createEafFromTemplate(
-  templateXml: string,
-  mediaFileName: string
-): EafDocument {
+export function createEafFromTemplate(templateXml: string, mediaFileName: string): EafDocument {
   const doc = new EafDocumentImpl(parse(templateXml));
   const root = doc.dom.documentElement;
   if (!root) throw new Error("template has no document element");
@@ -521,7 +515,7 @@ export function createEafFromTemplate(
   if (!header) {
     header = createElementWithAttrs(doc.dom, "HEADER", [
       ["MEDIA_FILE", ""],
-      ["TIME_UNITS", "milliseconds"]
+      ["TIME_UNITS", "milliseconds"],
     ]);
     root.insertBefore(header, root.firstChild);
   }
@@ -532,7 +526,7 @@ export function createEafFromTemplate(
   if (!descriptor) {
     descriptor = createElementWithAttrs(doc.dom, "MEDIA_DESCRIPTOR", [
       ["MEDIA_URL", name],
-      ["MIME_TYPE", mimeTypeForExtension(name)]
+      ["MIME_TYPE", mimeTypeForExtension(name)],
     ]);
     header.appendChild(descriptor);
   } else {
@@ -542,12 +536,10 @@ export function createEafFromTemplate(
 
   // PROPERTY lastUsedAnnotationId after the descriptors.
   let prop = childElements(header, "PROPERTY").find(
-    (p) => p.getAttribute("NAME") === LAST_USED_ID_PROPERTY
+    (p) => p.getAttribute("NAME") === LAST_USED_ID_PROPERTY,
   );
   if (!prop) {
-    prop = createElementWithAttrs(doc.dom, "PROPERTY", [
-      ["NAME", LAST_USED_ID_PROPERTY]
-    ]);
+    prop = createElementWithAttrs(doc.dom, "PROPERTY", [["NAME", LAST_USED_ID_PROPERTY]]);
     prop.appendChild(doc.dom.createTextNode("0"));
     header.appendChild(prop);
   }

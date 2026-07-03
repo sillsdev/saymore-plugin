@@ -5,7 +5,7 @@ import {
   autoSegmentEnvelope,
   DEFAULT_AUTO_SEGMENTER_SETTINGS,
   type AutoSegmenterSettings,
-  type SampleSource
+  type SampleSource,
 } from "./autoSegmenter";
 import type { Envelope } from "./EnvelopeCache";
 
@@ -52,7 +52,7 @@ class DummyWaveStream implements SampleSource {
     maxHighSample: number,
     minHighSample: number,
     setSpecificValues?: (s: Float32Array) => void,
-    seed = 12345
+    seed = 12345,
   ): void {
     this.channelCount = channels;
     const intToFloat = 1000000;
@@ -66,8 +66,7 @@ class DummyWaveStream implements SampleSource {
       const amplitudeInt =
         minHighSampleAsInt === maxHighSampleAsInt
           ? minHighSampleAsInt
-          : minHighSampleAsInt +
-            Math.floor(rand() * (maxHighSampleAsInt - minHighSampleAsInt));
+          : minHighSampleAsInt + Math.floor(rand() * (maxHighSampleAsInt - minHighSampleAsInt));
       s[i] = amplitudeInt / intToFloat;
     }
     setSpecificValues?.(s);
@@ -92,7 +91,7 @@ function settings(maxMs: number, pauseMs = 250): AutoSegmenterSettings {
     minSegmentLengthMs: 850,
     maxSegmentLengthMs: maxMs,
     preferredPauseLengthMs: pauseMs,
-    optimumLengthClampingFactor: 0.000004
+    optimumLengthClampingFactor: 0.000004,
   };
 }
 
@@ -267,12 +266,12 @@ describe("aggregateSamples (ported from AudioFileHelper.GetSamples)", () => {
     expect(Array.from(agg.max)).toEqual([
       expect.closeTo(0.9, 6),
       expect.closeTo(0.2, 6),
-      expect.closeTo(0.7, 6)
+      expect.closeTo(0.7, 6),
     ]);
     expect(Array.from(agg.min)).toEqual([
       expect.closeTo(0.1, 6),
       expect.closeTo(-0.4, 6),
-      expect.closeTo(-0.3, 6)
+      expect.closeTo(-0.3, 6),
     ]);
   });
 });
@@ -292,13 +291,13 @@ describe("autoSegmentEnvelope (real-app / worker path)", () => {
       channels: [{ max, min }],
       samplesPerMs: 1,
       sampleRate: 44100,
-      durationSec: 3
+      durationSec: 3,
     };
     const boundaries = autoSegmentEnvelope(envelope, {
       minSegmentLengthMs: 850,
       maxSegmentLengthMs: 2000,
       preferredPauseLengthMs: 10,
-      optimumLengthClampingFactor: 0.000004
+      optimumLengthClampingFactor: 0.000004,
     });
     expect(boundaries).toHaveLength(2);
     expect(boundaries[0] * 1000).toBeGreaterThanOrEqual(1498);
@@ -311,7 +310,7 @@ describe("autoSegmentEnvelope (real-app / worker path)", () => {
       channels: [],
       samplesPerMs: 1,
       sampleRate: 44100,
-      durationSec: 0
+      durationSec: 0,
     };
     expect(autoSegmentEnvelope(envelope, DEFAULT_AUTO_SEGMENTER_SETTINGS)).toEqual([]);
   });

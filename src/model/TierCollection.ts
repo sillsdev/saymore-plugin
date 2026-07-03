@@ -11,7 +11,7 @@ import {
   insertBoundary,
   moveBoundary,
   nudgeBoundary,
-  trimSegmentsToDuration
+  trimSegmentsToDuration,
 } from "./BoundaryRules";
 
 /**
@@ -44,9 +44,7 @@ export class TierCollection {
 
   /** Index of the segment enclosing `seconds` ([start, end)), or -1. */
   indexOfSegmentAt(seconds: number): number {
-    return this.segments.findIndex(
-      (s) => seconds >= s.range.start && seconds < s.range.end
-    );
+    return this.segments.findIndex((s) => seconds >= s.range.start && seconds < s.range.end);
   }
 
   // ── Undo support ────────────────────────────────────────────────────────
@@ -54,7 +52,7 @@ export class TierCollection {
     return this.segments.map((s) => ({
       range: s.range,
       transcription: s.transcription,
-      freeTranslation: s.freeTranslation
+      freeTranslation: s.freeTranslation,
     }));
   }
 
@@ -62,7 +60,7 @@ export class TierCollection {
     this.segments = segments.map((s) => ({
       range: s.range,
       transcription: s.transcription,
-      freeTranslation: s.freeTranslation
+      freeTranslation: s.freeTranslation,
     }));
   }
 

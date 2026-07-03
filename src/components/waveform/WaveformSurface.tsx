@@ -6,7 +6,7 @@ import {
   useImperativeHandle,
   useRef,
   useState,
-  type ReactNode
+  type ReactNode,
 } from "react";
 import WaveSurfer from "wavesurfer.js";
 import type { Envelope } from "../../audio/EnvelopeCache";
@@ -115,7 +115,7 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
         minPxPerSec: minPxRef.current,
         duration: durationSec,
         peaks: envelope ? envelopeToPeaks(envelope) : undefined,
-        ...(mediaElement ? { media: mediaElement } : mediaUrl ? { url: mediaUrl } : {})
+        ...(mediaElement ? { media: mediaElement } : mediaUrl ? { url: mediaUrl } : {}),
       });
       wsRef.current = ws;
 
@@ -171,7 +171,7 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
       contentWidth,
       height,
       secondsToPx,
-      pxToSeconds
+      pxToSeconds,
     };
 
     useImperativeHandle(
@@ -203,9 +203,9 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
           zoomSubs.current.add(cb);
           return () => zoomSubs.current.delete(cb);
         },
-        getViewport: () => viewport
+        getViewport: () => viewport,
       }),
-      [pxPerSec, scrollLeft, contentWidth]
+      [pxPerSec, scrollLeft, contentWidth],
     );
 
     return (
@@ -218,7 +218,13 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
           background: #f4f6f8;
         `}
       >
-        <div ref={waveRef} css={css`position: absolute; inset: 0;`} />
+        <div
+          ref={waveRef}
+          css={css`
+            position: absolute;
+            inset: 0;
+          `}
+        />
         <div
           css={css`
             position: absolute;
@@ -242,5 +248,5 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
         </div>
       </div>
     );
-  }
+  },
 );

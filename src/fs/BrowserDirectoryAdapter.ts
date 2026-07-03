@@ -15,10 +15,7 @@ export class BrowserDirectoryAdapter implements FileSystemAdapter {
     return new BrowserDirectoryAdapter(handle);
   }
 
-  private async resolveDir(
-    parts: string[],
-    create: boolean
-  ): Promise<FileSystemDirectoryHandle> {
+  private async resolveDir(parts: string[], create: boolean): Promise<FileSystemDirectoryHandle> {
     let dir = this.root;
     for (const part of parts) {
       dir = await dir.getDirectoryHandle(part, { create });
@@ -41,9 +38,11 @@ export class BrowserDirectoryAdapter implements FileSystemAdapter {
   async list(): Promise<string[]> {
     const out: string[] = [];
     const walk = async (dir: FileSystemDirectoryHandle, prefix: string): Promise<void> => {
-      for await (const [entryName, handle] of (dir as unknown as {
-        entries(): AsyncIterable<[string, FileSystemHandle]>;
-      }).entries()) {
+      for await (const [entryName, handle] of (
+        dir as unknown as {
+          entries(): AsyncIterable<[string, FileSystemHandle]>;
+        }
+      ).entries()) {
         const rel = prefix ? `${prefix}/${entryName}` : entryName;
         if (handle.kind === "file") out.push(rel);
         else await walk(handle as FileSystemDirectoryHandle, rel);

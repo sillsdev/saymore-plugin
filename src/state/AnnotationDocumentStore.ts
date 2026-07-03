@@ -5,7 +5,7 @@ import {
   createEafFromTemplate,
   loadEaf,
   serializeEaf,
-  type EafDocument
+  type EafDocument,
 } from "../model/eaf/EafDocument";
 import { eafTemplateXml } from "../model/eaf/eafTemplate";
 import type { FileSystemAdapter } from "../fs/FileSystemAdapter";
@@ -49,9 +49,7 @@ export class AnnotationDocumentStore {
   init(mediaFileName: string, durationSec: number, eafXml: string | undefined): void {
     this.mediaFileName = mediaFileName;
     this.durationSec = durationSec;
-    this.eaf = eafXml
-      ? loadEaf(eafXml)
-      : createEafFromTemplate(eafTemplateXml, mediaFileName);
+    this.eaf = eafXml ? loadEaf(eafXml) : createEafFromTemplate(eafTemplateXml, mediaFileName);
     this.tiers.replaceAll(this.eaf.segments);
     this.version = 0;
     this.savedVersion = 0;

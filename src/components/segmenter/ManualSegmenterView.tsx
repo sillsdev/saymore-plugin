@@ -77,8 +77,8 @@ export const ManualSegmenterView = observer(function ManualSegmenterView(props: 
             window.confirm(
               t(
                 "segmenter.confirmDelete",
-                "A segment here has an oral annotation recording. Delete this boundary and its recordings?"
-              )
+                "A segment here has an oral annotation recording. Delete this boundary and its recordings?",
+              ),
             )
           ) {
             vm.deleteSelectedBoundary();
@@ -166,8 +166,20 @@ export const ManualSegmenterView = observer(function ManualSegmenterView(props: 
         </div>
       )}
 
-      <div css={css`padding: 12px; flex: 1; overflow: auto;`}>
-        <div css={css`font-size: 12px; color: #607d8b; margin-bottom: 6px;`}>
+      <div
+        css={css`
+          padding: 12px;
+          flex: 1;
+          overflow: auto;
+        `}
+      >
+        <div
+          css={css`
+            font-size: 12px;
+            color: #607d8b;
+            margin-bottom: 6px;
+          `}
+        >
           {store.mediaFileName}
         </div>
         <WaveformSurface
@@ -180,10 +192,16 @@ export const ManualSegmenterView = observer(function ManualSegmenterView(props: 
           onSeek={(seconds) => vm.setCursor(seconds)}
           overlay={(viewport) => <BoundaryLayer vm={vm} viewport={viewport} />}
         />
-        <p css={css`font-size: 12px; color: #78909c; margin-top: 10px;`}>
+        <p
+          css={css`
+            font-size: 12px;
+            color: #78909c;
+            margin-top: 10px;
+          `}
+        >
           {t(
             "segmenter.help",
-            "Space listen/stop · click to place cursor · Enter add boundary · click a boundary then drag or ←/→ to move · Delete to remove · hover a segment for play/ignore · Ctrl+1/2/3 zoom."
+            "Space listen/stop · click to place cursor · Enter add boundary · click a boundary then drag or ←/→ to move · Delete to remove · hover a segment for play/ignore · Ctrl+1/2/3 zoom.",
           )}
         </p>
       </div>

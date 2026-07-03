@@ -1,6 +1,7 @@
 # SayMore-Compatible Audio Annotation SPA — sub-package in lameta
 
 ## Execution status (2026-07-03, branch `transcribe`)
+
 - ✅ Phase 0 scaffold + contracts + fixtures — commit `39ba80ca`
 - ✅ F5 auto-segmenter core port + ported C# tests — commit `dc87446e`
 - ✅ T1 Manual Segmenter vertical slice (seeds F1/F2/F3/F4 modules) — commit `a70656a1`; 138 specs green, driven in Chromium. Documented divergences-from-plan per actual SayMore source: Space is a toggle (not hold), zoom Ctrl+1/2/3 = +10%/reset/−10% steps, 100% = 80px/s, too-short = timed red warning.
@@ -12,8 +13,9 @@
 SayMore (legacy WinForms, D:\saymore) survives only because of its audio transcription tools: Manual Segmentation, Auto Segmenter, the Transcription/Free-Translation grid, and the Careful Speech / Oral Translation recorders. lameta (React 17/Electron, this repo) has none of them — audio gets a bare `<audio>` element and `.eaf` files get an "Open in ELAN" link. A plugin design for lameta is underway with another agent (iframe/webview hosting). This work builds the tools themselves as a standalone React SPA in a sub-package of the lameta repo, developed against one audio file (or a real SayMore session folder), packaged into the plugin later.
 
 **Decisions made with the user:**
+
 - **Exact SayMore on-disk compatibility** — projects must round-trip between SayMore, ELAN, and this tool.
-- **Scope now:** Manual Segmenter, Auto Segmenter, Transcription grid. **Recorders (Careful Speech / Oral Translation) and `.oralAnnotations.wav` generation are a later phase**, but the architecture must accommodate them, and *existing* careful/translation WAVs must play in the grid and be renamed/deleted correctly on boundary edits.
+- **Scope now:** Manual Segmenter, Auto Segmenter, Transcription grid. **Recorders (Careful Speech / Oral Translation) and `.oralAnnotations.wav` generation are a later phase**, but the architecture must accommodate them, and _existing_ careful/translation WAVs must play in the grid and be renamed/deleted correctly on boundary edits.
 - **Tooling:** Vite 5 / Vitest 3 / TS 5.5 to match lameta; yarn classic 1.22 (never npm); own package.json + lockfile (precedent: `sample-data-generator/`), no workspaces.
 - **Isolation:** plugin will host in iframe/webview → SPA uses its own React 18, but keeps team conventions: Emotion `css` prop, MobX 6 + `observer`, colocated `*.spec.ts`.
 
@@ -37,6 +39,7 @@ Deps: react/react-dom ^18.3, mobx ^6.13, mobx-react-lite ^4, @emotion/react+styl
 **Localization:** no Lingui initially — all UI strings go through a tiny `src/l10n.ts` `t(id, default)` wrapper with stable IDs so Lingui (or host message-passing) retrofits mechanically later.
 
 **Root-repo edits (only two, land in Phase 0):**
+
 - `vitest.config.js:22` — add `exclude: ["audio-annotation/**", "**/node_modules/**"]` (current `include: ["./**/*.spec.ts"]` would sweep the nested specs into root's happy-dom/setup environment).
 - `eslint.config.mjs:8` — `ignores: ["dist", "locale/", "audio-annotation/"]`.
 - No changes needed to root tsconfig (include limited to src/test), .gitignore (unanchored `node_modules`/`dist` already match), or CI (`.github/workflows/main.yml` never enters subdirs).
@@ -97,36 +100,37 @@ The dependency graph forks after a short foundation **if the shared contracts ar
 ### Phase 0 — Scaffold + contracts (SEQUENTIAL — everything depends on this; keep it small, ~a day)
 
 One effort, done first, merged before anything else starts:
+
 1. Package scaffold: `audio-annotation/` with package.json, vite/vitest/tsconfig/eslint configs, `yarn install`, hello-world `App.tsx`, CI-neutrality check.
 2. The two root-repo one-liners (vitest exclude, eslint ignore) — must land before any nested `*.spec.ts` exists.
 3. **Contracts**: type-only definitions + fakes that all tracks code against — `fs/FileSystemAdapter.ts` (interface) + `fs/InMemoryAdapter.ts`, `audio/EnvelopeCache.ts` (shape), `audio/PlaybackEngine.ts` (interface + spy impl), `model/TimeRange.ts`/`AnnotationSegment.ts`, `model/eaf/EafDocument.ts` (function signatures, unimplemented), `components/waveform/WaveformSurface.tsx` (wrapper API: secondsToPx, scroll/zoom events, cursor — implementation stubbed), `state/` store skeletons, `l10n.ts`.
 4. **Fixtures**: copy into `test-data/` a real SayMore-produced session folder (media + `.annotations.eaf` + `_Annotations/` WAVs), an ELAN-authored EAF with foreign tiers/missing TIME_VALUEs, `annotationTemplate.etf` from `D:\saymore\DistFiles\`, and generate the C#-float parity table (throwaway C# script) — every parallel track needs these.
 
-*Gate:* `yarn dev` renders shell; `yarn test`/`yarn lint` pass in sub-package AND at root; contracts compile; fixtures committed.
+_Gate:_ `yarn dev` renders shell; `yarn test`/`yarn lint` pass in sub-package AND at root; contracts compile; fixtures committed.
 
 ### Phase 1 — Foundation tracks (PARALLEL ×4, all depend only on Phase 0)
 
-- **F1 Model & EAF** — owns `src/model/**`. EafDocument load/save (DOM-preserving, id continuity, interpolation, trimming, template seeding), TierCollection, BoundaryRules (460ms clamps, split/join, permanence, OK-time rules), IgnoreMarkers, Completeness. Pure TS + fixtures; no UI, no FS. *Gate:* round-trip specs vs real SayMore EAF + foreign-tier preservation; edited fixture opens cleanly in SayMore and ELAN (manual).
-- **F2 Audio engine** — owns `src/audio/**` except autosegmenter. envelope.ts (stream-parsed WAV PCM; decodeAudioData fallback), EnvelopeCache impl, PlaybackEngine impl (media element, rAF stop-at-end, rate, loops, playSequence). *Gate:* envelope specs (bucketing parity math, WAV header cases); manual harness page plays sub-ranges at various rates.
-- **F3 FS & filename compat** — owns `src/fs/**`. BrowserDirectoryAdapter (rename=copy+delete), SessionFolder discovery (prefer `_StandardAudio.wav`), csFloat (parity table from Phase 0), OralAnnotationFiles + OralAnnotationIndex (naming, permanence lookup, applyOps, readSegmentWav, `,`-decimal read tolerance). *Gate:* csFloat parity specs green; InMemoryAdapter op specs; manual smoke vs a real `_Annotations` folder via directory picker.
-- **F4 Waveform & shell** — owns `src/components/waveform/**`, `src/components/shell/**`, `src/harness/**`, `App.tsx`. WaveformSurface over wavesurfer v7 (precomputed-peaks + duration, MediaElement backend, minPxPerSec zoom mapping, scroll/cursor events), useViewport, OpenScreen (file drop + directory picker). Uses fake envelope data until F2 merges. *Gate:* **the 60-min-file perf gate** — hour-long WAV at 1000% zoom scrolls acceptably (this is the go/no-go on wavesurfer; if it fails, swap renderer behind WaveformSurface before Phase 3 builds on it).
-- **(F5 Auto-segmenter core — can also start here)** — owns `src/audio/autoSegmenter*.ts`. The pure port + worker + ported C# tests need only the SampleSource seam and envelope shape from Phase 0; only its *dialog and apply-step* wait for Phase 2. *Gate:* all ported AutoSegmenterTests pass.
+- **F1 Model & EAF** — owns `src/model/**`. EafDocument load/save (DOM-preserving, id continuity, interpolation, trimming, template seeding), TierCollection, BoundaryRules (460ms clamps, split/join, permanence, OK-time rules), IgnoreMarkers, Completeness. Pure TS + fixtures; no UI, no FS. _Gate:_ round-trip specs vs real SayMore EAF + foreign-tier preservation; edited fixture opens cleanly in SayMore and ELAN (manual).
+- **F2 Audio engine** — owns `src/audio/**` except autosegmenter. envelope.ts (stream-parsed WAV PCM; decodeAudioData fallback), EnvelopeCache impl, PlaybackEngine impl (media element, rAF stop-at-end, rate, loops, playSequence). _Gate:_ envelope specs (bucketing parity math, WAV header cases); manual harness page plays sub-ranges at various rates.
+- **F3 FS & filename compat** — owns `src/fs/**`. BrowserDirectoryAdapter (rename=copy+delete), SessionFolder discovery (prefer `_StandardAudio.wav`), csFloat (parity table from Phase 0), OralAnnotationFiles + OralAnnotationIndex (naming, permanence lookup, applyOps, readSegmentWav, `,`-decimal read tolerance). _Gate:_ csFloat parity specs green; InMemoryAdapter op specs; manual smoke vs a real `_Annotations` folder via directory picker.
+- **F4 Waveform & shell** — owns `src/components/waveform/**`, `src/components/shell/**`, `src/harness/**`, `App.tsx`. WaveformSurface over wavesurfer v7 (precomputed-peaks + duration, MediaElement backend, minPxPerSec zoom mapping, scroll/cursor events), useViewport, OpenScreen (file drop + directory picker). Uses fake envelope data until F2 merges. _Gate:_ **the 60-min-file perf gate** — hour-long WAV at 1000% zoom scrolls acceptably (this is the go/no-go on wavesurfer; if it fails, swap renderer behind WaveformSurface before Phase 3 builds on it).
+- **(F5 Auto-segmenter core — can also start here)** — owns `src/audio/autoSegmenter*.ts`. The pure port + worker + ported C# tests need only the SampleSource seam and envelope shape from Phase 0; only its _dialog and apply-step_ wait for Phase 2. _Gate:_ all ported AutoSegmenterTests pass.
 
 ### Phase 2 — Integration spine (SEQUENTIAL, short — merges F1–F4)
 
-One effort: ProjectStore + AnnotationDocumentStore (dirty/version, debounced autosave, external-change poll), UndoStack + deferred FileOp journal with coalescing, wiring OpenScreen → session load → waveform with boundaries rendered from a real `.annotations.eaf`. *Gate:* open a real SayMore session end-to-end; edit nothing; close; file untouched. This is deliberately one pair of hands — it's where the seams meet and parallel edits would collide.
+One effort: ProjectStore + AnnotationDocumentStore (dirty/version, debounced autosave, external-change poll), UndoStack + deferred FileOp journal with coalescing, wiring OpenScreen → session load → waveform with boundaries rendered from a real `.annotations.eaf`. _Gate:_ open a real SayMore session end-to-end; edit nothing; close; file untouched. This is deliberately one pair of hands — it's where the seams meet and parallel edits would collide.
 
 ### Phase 3 — Tool tracks (PARALLEL ×3, all depend on Phase 2)
 
-- **T1 Manual Segmenter** — owns `src/components/segmenter/**` (minus AutoSegmentDialog), `state/SegmenterViewModel.ts`, BoundaryLayer/SegmentShading overlay components. Full interaction set: Enter/Delete/drag/nudge+delayed-replay/zoom keys/hover Play+Ignore/too-short flash/segment count, undo, FileOp journal commit, permanence confirm dialog. *Gate:* BoundaryRules-driven interaction specs; manual — edit a session with `_Annotations`, reopen in SayMore, every careful segment still plays.
-- **T2 Transcription Grid** — owns `src/components/grid/**`, `state/GridViewModel.ts`, `state/PlaybackOptions.ts`. Virtualized 3-column grid, envelope-slice thumbnails, cell editing + autosave, 250ms autoplay/≤5 loops/F2, Tab/arrow nav skipping col 0 and ignored rows, ignored-row rendering, per-column fonts + Options playback menus (incl. careful/translation WAVs via readSegmentWav + playSequence), speed control, external-change reload banner. *Gate:* component specs (happy-dom, PlaybackEngine spy); manual — Careful/Both options play correct files from a real session.
-- **T3 Auto Segmenter UI** — owns `AutoSegmentDialog.tsx` + the apply step. Params dialog (1000/10000/250/4e-6 defaults), worker invocation with progress, post-OK rules via BoundaryRules (5s end handling, trailing `%ignore%`, text backfill), entry from the StartAnnotating flow. Small — can be picked up by whichever track finishes first. *Gate:* manual run on real audio; boundaries in pauses, all segments within [min,max].
+- **T1 Manual Segmenter** — owns `src/components/segmenter/**` (minus AutoSegmentDialog), `state/SegmenterViewModel.ts`, BoundaryLayer/SegmentShading overlay components. Full interaction set: Enter/Delete/drag/nudge+delayed-replay/zoom keys/hover Play+Ignore/too-short flash/segment count, undo, FileOp journal commit, permanence confirm dialog. _Gate:_ BoundaryRules-driven interaction specs; manual — edit a session with `_Annotations`, reopen in SayMore, every careful segment still plays.
+- **T2 Transcription Grid** — owns `src/components/grid/**`, `state/GridViewModel.ts`, `state/PlaybackOptions.ts`. Virtualized 3-column grid, envelope-slice thumbnails, cell editing + autosave, 250ms autoplay/≤5 loops/F2, Tab/arrow nav skipping col 0 and ignored rows, ignored-row rendering, per-column fonts + Options playback menus (incl. careful/translation WAVs via readSegmentWav + playSequence), speed control, external-change reload banner. _Gate:_ component specs (happy-dom, PlaybackEngine spy); manual — Careful/Both options play correct files from a real session.
+- **T3 Auto Segmenter UI** — owns `AutoSegmentDialog.tsx` + the apply step. Params dialog (1000/10000/250/4e-6 defaults), worker invocation with progress, post-OK rules via BoundaryRules (5s end handling, trailing `%ignore%`, text backfill), entry from the StartAnnotating flow. Small — can be picked up by whichever track finishes first. _Gate:_ manual run on real audio; boundaries in pauses, all segments within [min,max].
 
 Tool tracks share only Phase-2 store APIs; their component/state files are disjoint. Agree that any needed store change is a PR against the spine, not an in-track edit.
 
 ### Phase 4 — Compat hardening + polish (SEQUENTIAL — needs all tools)
 
-Completeness indicators in shell tabs, `%junk%` read-compat, `EXTRACTED_FROM` video-sourced EAFs, non-WAV decode warning, error boundaries, export menu stubs, README manual-test protocol. *Gate:* full manual protocol on ≥2 real SayMore sessions (one with oral annotations), verified in SayMore **and** ELAN; all specs green.
+Completeness indicators in shell tabs, `%junk%` read-compat, `EXTRACTED_FROM` video-sourced EAFs, non-WAV decode warning, error boundaries, export menu stubs, README manual-test protocol. _Gate:_ full manual protocol on ≥2 real SayMore sessions (one with oral annotations), verified in SayMore **and** ELAN; all specs green.
 
 **Later phases (designed-for, not built now):** Careful Speech + Oral Translation recorders (reuse WaveformSurface/UndoStack/OralAnnotationFiles; add MediaRecorder→wavWriter.ts, peak meter, SpaceBarMode state machine), `.oralAnnotations.wav` multichannel generation, exports (SRT/Audacity/CSV/FLExText/Toolbox), Lingui wiring, plugin integration.
 

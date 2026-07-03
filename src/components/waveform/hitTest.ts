@@ -11,7 +11,7 @@ export function boundaryIndexAtPx(
   boundaries: readonly number[],
   contentX: number,
   pxPerSec: number,
-  tolPx: number = BOUNDARY_HIT_HALF_WIDTH_PX
+  tolPx: number = BOUNDARY_HIT_HALF_WIDTH_PX,
 ): number {
   let best = -1;
   let bestDist = tolPx + 1;
@@ -29,7 +29,7 @@ export function boundaryIndexAtPx(
 export function segmentIndexAtPx(
   segments: readonly AnnotationSegment[],
   contentX: number,
-  pxPerSec: number
+  pxPerSec: number,
 ): number {
   const seconds = pxPerSec > 0 ? contentX / pxPerSec : 0;
   return segments.findIndex((s) => seconds >= s.range.start && seconds < s.range.end);

@@ -32,7 +32,7 @@ export class UndoStack {
   constructor() {
     makeAutoObservable<UndoStack, "undoStack" | "redoStack">(this, {
       undoStack: true,
-      redoStack: true
+      redoStack: true,
     });
   }
 

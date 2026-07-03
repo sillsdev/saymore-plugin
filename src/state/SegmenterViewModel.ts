@@ -9,7 +9,7 @@ import {
   REPLAY_DELAY_MS,
   REPLAY_WINDOW_MS,
   TOO_SHORT_WARNING_MS,
-  ZOOM_STEP_PERCENT
+  ZOOM_STEP_PERCENT,
 } from "../model/SayMoreConstants";
 import { t } from "../l10n";
 import type { PlaybackEngine } from "../audio/PlaybackEngine";
@@ -56,18 +56,18 @@ export class SegmenterViewModel {
     this.playback = deps.playback;
     this.adapter = deps.adapter;
     this.oralIndex = deps.oralIndex;
-    makeAutoObservable<SegmenterViewModel, "adapter" | "oralIndex" | "replayTimer" | "warningTimer">(
-      this,
-      {
-        document: false,
-        playback: false,
-        undoStack: false,
-        adapter: false,
-        oralIndex: false,
-        replayTimer: false,
-        warningTimer: false
-      }
-    );
+    makeAutoObservable<
+      SegmenterViewModel,
+      "adapter" | "oralIndex" | "replayTimer" | "warningTimer"
+    >(this, {
+      document: false,
+      playback: false,
+      undoStack: false,
+      adapter: false,
+      oralIndex: false,
+      replayTimer: false,
+      warningTimer: false,
+    });
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -168,7 +168,7 @@ export class SegmenterViewModel {
       label,
       apply: () => this.document.tiers.replaceAll(after),
       revert: () => this.document.tiers.replaceAll(before),
-      fileOps
+      fileOps,
     });
     this.document.bumpVersion();
     return result;
@@ -184,7 +184,7 @@ export class SegmenterViewModel {
         ? this.oralIndex.computeDeleteOps(this.segments[enclosing].range)
         : [];
     const result = this.runEdit(t("segmenter.cmd.addBoundary", "Add boundary"), fileOps, () =>
-      this.document.tiers.insertBoundary(at)
+      this.document.tiers.insertBoundary(at),
     );
     if (result === BoundaryResult.Success) {
       this.selectBoundaryAt(at);
@@ -200,7 +200,7 @@ export class SegmenterViewModel {
     if (k < 0 || k >= this.segments.length) return BoundaryResult.SegmentNotFound;
     const fileOps = this.computeDeleteFileOps(k);
     const result = this.runEdit(t("segmenter.cmd.deleteBoundary", "Delete boundary"), fileOps, () =>
-      this.document.tiers.deleteSegment(k)
+      this.document.tiers.deleteSegment(k),
     );
     if (result === BoundaryResult.Success) this.clearSelection();
     return result;
@@ -218,7 +218,7 @@ export class SegmenterViewModel {
     this.playback.stop();
     const fileOps = this.computeMoveFileOps(k, newEndSec);
     const result = this.runEdit(t("segmenter.cmd.moveBoundary", "Move boundary"), fileOps, () =>
-      this.document.tiers.moveBoundary(k, newEndSec)
+      this.document.tiers.moveBoundary(k, newEndSec),
     );
     if (result === BoundaryResult.Success && replay) {
       this.scheduleReplay(this.segments[k].range.end, k);
@@ -235,7 +235,7 @@ export class SegmenterViewModel {
     const newEnd = this.segments[k].range.end + deltaMs / 1000;
     const fileOps = this.computeMoveFileOps(k, newEnd);
     const result = this.runEdit(t("segmenter.cmd.nudge", "Nudge boundary"), fileOps, () =>
-      this.document.tiers.nudgeBoundary(k, deltaMs, this.durationSec)
+      this.document.tiers.nudgeBoundary(k, deltaMs, this.durationSec),
     );
     if (result === BoundaryResult.Success) {
       this.scheduleReplay(this.segments[k].range.end, k);
@@ -252,7 +252,7 @@ export class SegmenterViewModel {
     this.undoStack.do({
       label: t("segmenter.cmd.ignore", "Toggle ignore"),
       apply: () => this.document.tiers.replaceAll(after),
-      revert: () => this.document.tiers.replaceAll(before)
+      revert: () => this.document.tiers.replaceAll(before),
     });
     this.document.bumpVersion();
   }
@@ -318,14 +318,11 @@ export class SegmenterViewModel {
     if (!this.oralIndex) return [];
     const segs = this.segments;
     const cur = segs[k];
-    const ops = this.oralIndex.computeRenameOps(
-      cur.range,
-      makeTimeRange(cur.range.start, newEnd)
-    );
+    const ops = this.oralIndex.computeRenameOps(cur.range, makeTimeRange(cur.range.start, newEnd));
     const next = segs[k + 1];
     if (next) {
       ops.push(
-        ...this.oralIndex.computeRenameOps(next.range, makeTimeRange(newEnd, next.range.end))
+        ...this.oralIndex.computeRenameOps(next.range, makeTimeRange(newEnd, next.range.end)),
       );
     }
     return ops;
@@ -341,8 +338,8 @@ export class SegmenterViewModel {
       ops.push(
         ...this.oralIndex.computeRenameOps(
           next.range,
-          makeTimeRange(removed.range.start, next.range.end)
-        )
+          makeTimeRange(removed.range.start, next.range.end),
+        ),
       );
     }
     return ops;

@@ -40,7 +40,7 @@ function readFourCC(view: DataView, offset: number): string {
     view.getUint8(offset),
     view.getUint8(offset + 1),
     view.getUint8(offset + 2),
-    view.getUint8(offset + 3)
+    view.getUint8(offset + 3),
   );
 }
 
@@ -53,9 +53,7 @@ function parseWavHeader(bytes: Uint8Array): WavData {
   const riff = readFourCC(view, 0);
   const wave = readFourCC(view, 8);
   if (riff !== "RIFF" || wave !== "WAVE") {
-    throw new Error(
-      `Not a WAV file: expected 'RIFF'/'WAVE' but found '${riff}'/'${wave}'.`
-    );
+    throw new Error(`Not a WAV file: expected 'RIFF'/'WAVE' but found '${riff}'/'${wave}'.`);
   }
 
   let format: WavFormat | undefined;
@@ -86,7 +84,7 @@ function parseWavHeader(bytes: Uint8Array): WavData {
         numChannels,
         sampleRate,
         bitsPerSample,
-        blockAlign: blockAlign || (numChannels * bitsPerSample) / 8
+        blockAlign: blockAlign || (numChannels * bitsPerSample) / 8,
       };
     } else if (id === "data") {
       dataOffset = body;
@@ -107,10 +105,7 @@ function parseWavHeader(bytes: Uint8Array): WavData {
  * Returns a per-sample reader that yields a value normalized to [-1, 1] for the
  * given WAV format, or throws for unsupported bit depths / encodings.
  */
-function makeSampleReader(
-  view: DataView,
-  format: WavFormat
-): (byteOffset: number) => number {
+function makeSampleReader(view: DataView, format: WavFormat): (byteOffset: number) => number {
   const { formatCode, bitsPerSample } = format;
 
   if (formatCode === 1) {
@@ -133,9 +128,7 @@ function makeSampleReader(
       case 32:
         return (o) => view.getInt32(o, true) / 2147483648;
       default:
-        throw new Error(
-          `Unsupported PCM bit depth: ${bitsPerSample}-bit (supported: 8/16/24/32).`
-        );
+        throw new Error(`Unsupported PCM bit depth: ${bitsPerSample}-bit (supported: 8/16/24/32).`);
     }
   }
 
@@ -148,13 +141,13 @@ function makeSampleReader(
         return (o) => view.getFloat64(o, true);
       default:
         throw new Error(
-          `Unsupported IEEE-float bit depth: ${bitsPerSample}-bit (supported: 32/64).`
+          `Unsupported IEEE-float bit depth: ${bitsPerSample}-bit (supported: 32/64).`,
         );
     }
   }
 
   throw new Error(
-    `Unsupported WAV encoding: format code ${formatCode} (supported: 1=PCM, 3=IEEE float).`
+    `Unsupported WAV encoding: format code ${formatCode} (supported: 1=PCM, 3=IEEE float).`,
   );
 }
 
@@ -168,7 +161,7 @@ function bucketize(
   numFrames: number,
   sampleRate: number,
   numChannels: number,
-  readChannel: (channel: number, frame: number) => number
+  readChannel: (channel: number, frame: number) => number,
 ): { channels: ChannelEnvelope[]; durationSec: number } {
   const durationSec = numFrames / sampleRate;
   const numBuckets = Math.max(1, Math.round(durationSec * 1000));
@@ -219,8 +212,7 @@ export function computeEnvelopeFromWav(bytes: Uint8Array): Envelope {
   const readSample = makeSampleReader(view, format);
 
   const readChannel = (channel: number, frame: number): number => {
-    const offset =
-      dataOffset + (frame * format.numChannels + channel) * bytesPerSample;
+    const offset = dataOffset + (frame * format.numChannels + channel) * bytesPerSample;
     return readSample(offset);
   };
 
@@ -228,14 +220,14 @@ export function computeEnvelopeFromWav(bytes: Uint8Array): Envelope {
     numFrames,
     format.sampleRate,
     format.numChannels,
-    readChannel
+    readChannel,
   );
 
   return {
     channels,
     samplesPerMs: 1,
     sampleRate: format.sampleRate,
-    durationSec
+    durationSec,
   };
 }
 
@@ -243,9 +235,7 @@ export function computeEnvelopeFromWav(bytes: Uint8Array): Envelope {
 function isWav(mimeOrExt?: string): boolean {
   if (!mimeOrExt) return false;
   const s = mimeOrExt.toLowerCase();
-  return (
-    s.includes("wav") || s.endsWith(".wave") || s === "wave" || s === "audio/x-wav"
-  );
+  return s.includes("wav") || s.endsWith(".wave") || s === "wave" || s === "audio/x-wav";
 }
 
 /** Cheap signature sniff for a RIFF/WAVE container. */
@@ -260,16 +250,14 @@ type DecodeCapableCtx = {
   close?: () => Promise<void> | void;
 };
 
-function getAudioContextCtor():
-  | (new () => DecodeCapableCtx)
-  | undefined {
+function getAudioContextCtor(): (new () => DecodeCapableCtx) | undefined {
   const g = globalThis as unknown as {
     AudioContext?: new () => DecodeCapableCtx;
     webkitAudioContext?: new () => DecodeCapableCtx;
     OfflineAudioContext?: new (
       channels: number,
       length: number,
-      sampleRate: number
+      sampleRate: number,
     ) => DecodeCapableCtx;
   };
   return g.AudioContext ?? g.webkitAudioContext;
@@ -285,7 +273,7 @@ async function computeEnvelopeViaWebAudio(bytes: Uint8Array): Promise<Envelope> 
   const Ctor = getAudioContextCtor();
   if (!Ctor) {
     throw new Error(
-      "compressed decode requires a browser AudioContext (none available in this environment)."
+      "compressed decode requires a browser AudioContext (none available in this environment).",
     );
   }
   const ctx = new Ctor();
@@ -293,7 +281,7 @@ async function computeEnvelopeViaWebAudio(bytes: Uint8Array): Promise<Envelope> 
     // decodeAudioData wants an ArrayBuffer that owns exactly the data.
     const ab = bytes.buffer.slice(
       bytes.byteOffset,
-      bytes.byteOffset + bytes.byteLength
+      bytes.byteOffset + bytes.byteLength,
     ) as ArrayBuffer;
     const audioBuffer = await ctx.decodeAudioData(ab);
 
@@ -308,14 +296,14 @@ async function computeEnvelopeViaWebAudio(bytes: Uint8Array): Promise<Envelope> 
       numFrames,
       audioBuffer.sampleRate,
       numChannels,
-      (channel, frame) => channelData[channel][frame]
+      (channel, frame) => channelData[channel][frame],
     );
 
     return {
       channels,
       samplesPerMs: 1,
       sampleRate: audioBuffer.sampleRate,
-      durationSec
+      durationSec,
     };
   } finally {
     void ctx.close?.();
@@ -328,10 +316,7 @@ async function computeEnvelopeViaWebAudio(bytes: Uint8Array): Promise<Envelope> 
  * path. `mimeOrExt` (a MIME type or file extension) is an optional hint; if
  * absent we sniff the RIFF/WAVE signature.
  */
-export async function computeEnvelope(
-  bytes: Uint8Array,
-  mimeOrExt?: string
-): Promise<Envelope> {
+export async function computeEnvelope(bytes: Uint8Array, mimeOrExt?: string): Promise<Envelope> {
   if (isWav(mimeOrExt) || (!mimeOrExt && looksLikeWav(bytes))) {
     return computeEnvelopeFromWav(bytes);
   }

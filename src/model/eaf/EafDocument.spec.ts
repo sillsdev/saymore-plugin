@@ -2,12 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { testDataPath } from "../../testData";
 import { eafTemplateXml } from "./eafTemplate";
-import {
-  loadEaf,
-  serializeEaf,
-  createEafFromTemplate,
-  type EafDocument
-} from "./EafDocument";
+import { loadEaf, serializeEaf, createEafFromTemplate, type EafDocument } from "./EafDocument";
 
 function read(...segments: string[]): string {
   return readFileSync(testDataPath(...segments), "utf8");
@@ -35,12 +30,12 @@ describe("EafDocument round-trip of a real SayMore EAF", () => {
     expect(doc.segments.map((s) => s.transcription)).toEqual([
       "Transcription1",
       "Transcription3",
-      "Transcription2"
+      "Transcription2",
     ]);
     expect(doc.segments.map((s) => s.freeTranslation)).toEqual([
       "FreeTranslation1",
       "",
-      "FreeTranslation2"
+      "FreeTranslation2",
     ]);
 
     const serialized = serializeEaf(doc);
@@ -57,9 +52,7 @@ describe("EafDocument round-trip of a real SayMore EAF", () => {
     const tierIds = Array.from(
       { length: reloaded.dom.getElementsByTagName("TIER").length },
       (_v, i) =>
-        (reloaded.dom.getElementsByTagName("TIER").item(i) as Element).getAttribute(
-          "TIER_ID"
-        )
+        (reloaded.dom.getElementsByTagName("TIER").item(i) as Element).getAttribute("TIER_ID"),
     );
     expect(tierIds).toContain("User Defined Tier");
   });
@@ -93,9 +86,7 @@ describe("EafDocument ELAN interpolation + foreign tier", () => {
     const notes = Array.from(
       { length: reloaded.dom.getElementsByTagName("TIER").length },
       (_v, i) =>
-        (reloaded.dom.getElementsByTagName("TIER").item(i) as Element).getAttribute(
-          "TIER_ID"
-        )
+        (reloaded.dom.getElementsByTagName("TIER").item(i) as Element).getAttribute("TIER_ID"),
     );
     expect(notes).toContain("Notes");
   });
@@ -110,7 +101,7 @@ describe("EafDocument createFromTemplate + writeSegments", () => {
 
     doc.writeSegments([
       { range: { start: 0, end: 1.5 }, transcription: "hello", freeTranslation: "" },
-      { range: { start: 1.5, end: 3.0 }, transcription: "world", freeTranslation: "" }
+      { range: { start: 1.5, end: 3.0 }, transcription: "world", freeTranslation: "" },
     ]);
 
     const reloaded = loadEaf(serializeEaf(doc));
@@ -136,7 +127,7 @@ describe("EafDocument createFromTemplate + writeSegments", () => {
     const doc = createEafFromTemplate(eafTemplateXml, "X.wav");
     doc.writeSegments([
       { range: { start: 0, end: 1 }, transcription: "a", freeTranslation: "AA" },
-      { range: { start: 1, end: 2 }, transcription: "b", freeTranslation: "" }
+      { range: { start: 1, end: 2 }, transcription: "b", freeTranslation: "" },
     ]);
     const refs = doc.dom.getElementsByTagName("REF_ANNOTATION");
     expect(refs.length).toBe(1);
@@ -151,7 +142,7 @@ describe("EafDocument writeSegments id continuity", () => {
 
     const grown = [
       ...doc.segments,
-      { range: { start: 3, end: 4 }, transcription: "new", freeTranslation: "" }
+      { range: { start: 3, end: 4 }, transcription: "new", freeTranslation: "" },
     ];
     doc.writeSegments(grown);
 

@@ -6,7 +6,7 @@ import {
   coalesceFileOps,
   oralAnnotationsFolderName,
   segmentWavName,
-  type FileOp
+  type FileOp,
 } from "./OralAnnotationFiles";
 
 const MEDIA = "longerSound.wav";
@@ -24,10 +24,10 @@ function seededAdapter(): InMemoryAdapter {
 describe("segment WAV naming", () => {
   it("builds SayMore-compatible relative paths", () => {
     expect(segmentWavName(MEDIA, makeTimeRange(0.75, 1.25), "Careful")).toBe(
-      `${FOLDER}/0.75_to_1.25_Careful.wav`
+      `${FOLDER}/0.75_to_1.25_Careful.wav`,
     );
     expect(segmentWavName(MEDIA, makeTimeRange(1.25, 2.121), "Translation")).toBe(
-      `${FOLDER}/1.25_to_2.121_Translation.wav`
+      `${FOLDER}/1.25_to_2.121_Translation.wav`,
     );
   });
 });
@@ -43,20 +43,17 @@ describe("OralAnnotationIndex", () => {
 
   it("computes rename ops when the shared 1.25 boundary moves, reusing the 2.121 token", async () => {
     const idx = await OralAnnotationIndex.build(seededAdapter(), MEDIA);
-    const ops = idx.computeRenameOps(
-      makeTimeRange(1.25, 2.121),
-      makeTimeRange(1.4, 2.121)
-    );
+    const ops = idx.computeRenameOps(makeTimeRange(1.25, 2.121), makeTimeRange(1.4, 2.121));
     expect(ops).toHaveLength(2); // careful + translation both renamed
     expect(ops).toContainEqual({
       kind: "rename",
       from: `${FOLDER}/1.25_to_2.121_Careful.wav`,
-      to: `${FOLDER}/1.4_to_2.121_Careful.wav`
+      to: `${FOLDER}/1.4_to_2.121_Careful.wav`,
     });
     expect(ops).toContainEqual({
       kind: "rename",
       from: `${FOLDER}/1.25_to_2.121_Translation.wav`,
-      to: `${FOLDER}/1.4_to_2.121_Translation.wav`
+      to: `${FOLDER}/1.4_to_2.121_Translation.wav`,
     });
   });
 
@@ -87,7 +84,7 @@ describe("coalesceFileOps", () => {
   it("folds a rename chain a→b→c into a→c", () => {
     const ops: FileOp[] = [
       { kind: "rename", from: "a.wav", to: "b.wav" },
-      { kind: "rename", from: "b.wav", to: "c.wav" }
+      { kind: "rename", from: "b.wav", to: "c.wav" },
     ];
     expect(coalesceFileOps(ops)).toEqual([{ kind: "rename", from: "a.wav", to: "c.wav" }]);
   });
@@ -95,7 +92,7 @@ describe("coalesceFileOps", () => {
   it("a later delete supersedes prior renames", () => {
     const ops: FileOp[] = [
       { kind: "rename", from: "a.wav", to: "b.wav" },
-      { kind: "delete", name: "b.wav" }
+      { kind: "delete", name: "b.wav" },
     ];
     expect(coalesceFileOps(ops)).toEqual([{ kind: "delete", name: "a.wav" }]);
   });
@@ -103,7 +100,7 @@ describe("coalesceFileOps", () => {
   it("drops no-op round trips", () => {
     const ops: FileOp[] = [
       { kind: "rename", from: "a.wav", to: "b.wav" },
-      { kind: "rename", from: "b.wav", to: "a.wav" }
+      { kind: "rename", from: "b.wav", to: "a.wav" },
     ];
     expect(coalesceFileOps(ops)).toEqual([]);
   });

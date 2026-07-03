@@ -65,7 +65,14 @@ export const SegmenterToolbar = observer(function SegmenterToolbar(props: {
       <button type="button" onClick={() => vm.zoomOut()} css={btn} title="Ctrl+3">
         −
       </button>
-      <span css={css`min-width: 3.5em; text-align: center;`}>{vm.zoomPercent}%</span>
+      <span
+        css={css`
+          min-width: 3.5em;
+          text-align: center;
+        `}
+      >
+        {vm.zoomPercent}%
+      </span>
       <button type="button" onClick={() => vm.zoomIn()} css={btn} title="Ctrl+1">
         +
       </button>
@@ -80,12 +87,25 @@ export const SegmenterToolbar = observer(function SegmenterToolbar(props: {
         {vm.isDirty ? " *" : ""}
       </button>
 
-      <span css={css`flex: 1;`} />
+      <span
+        css={css`
+          flex: 1;
+        `}
+      />
 
-      <span css={css`color: #455a64;`}>
+      <span
+        css={css`
+          color: #455a64;
+        `}
+      >
         {t("segmenter.segmentCount", "Segments: {count}", { count: vm.segmentCount })}
       </span>
-      <span css={css`font-variant-numeric: tabular-nums; color: #455a64;`}>
+      <span
+        css={css`
+          font-variant-numeric: tabular-nums;
+          color: #455a64;
+        `}
+      >
         {formatTime(current)} / {formatTime(vm.durationSec)}
       </span>
     </div>

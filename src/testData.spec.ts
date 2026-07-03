@@ -13,7 +13,7 @@ describe("test-data fixtures", () => {
       "media/longerSound.wav",
       "elan-authored/regular-annotations.eaf",
       "session/longerSound.wav",
-      "session/longerSound.wav.annotations.eaf"
+      "session/longerSound.wav.annotations.eaf",
     ]) {
       expect(existsSync(testDataPath(p)), p).toBe(true);
     }
@@ -23,19 +23,16 @@ describe("test-data fixtures", () => {
     for (const name of [
       "0.75_to_1.25_Careful.wav",
       "1.25_to_2.121_Careful.wav",
-      "1.25_to_2.121_Translation.wav"
+      "1.25_to_2.121_Translation.wav",
     ]) {
-      expect(
-        existsSync(testDataPath("session/longerSound.wav_Annotations", name)),
-        name
-      ).toBe(true);
+      expect(existsSync(testDataPath("session/longerSound.wav_Annotations", name)), name).toBe(
+        true,
+      );
     }
   });
 
   it("parses the C#-float parity table with the key net48 discriminator", () => {
-    const table = JSON.parse(
-      readFileSync(testDataPath("csfloat/csfloat-parity.json"), "utf8")
-    );
+    const table = JSON.parse(readFileSync(testDataPath("csfloat/csfloat-parity.json"), "utf8"));
     expect(table.entries.length).toBeGreaterThan(10);
     expect(table.suffixes.careful).toBe("_Careful.wav");
 
@@ -43,8 +40,7 @@ describe("test-data fixtures", () => {
     // NOT the modern shortest-round-trip "0.33333334". This is the value that
     // proves the table is genuine net48 output and pins the csFloat.ts contract.
     const oneThird = table.entries.find(
-      (e: { float32RoundTrip: number }) =>
-        Math.abs(e.float32RoundTrip - 0.333333343) < 1e-9
+      (e: { float32RoundTrip: number }) => Math.abs(e.float32RoundTrip - 0.333333343) < 1e-9,
     );
     expect(oneThird?.invariant).toBe("0.3333333");
     expect(oneThird?.deDE).toBe("0,3333333");

@@ -2,7 +2,7 @@ import type { FileSystemAdapter } from "./FileSystemAdapter";
 import {
   ANNOTATIONS_EAF_SUFFIX,
   ANNOTATIONS_FOLDER_SUFFIX,
-  STANDARD_AUDIO_SUFFIX
+  STANDARD_AUDIO_SUFFIX,
 } from "../model/SayMoreConstants";
 
 /**
@@ -22,7 +22,7 @@ const VIDEO_EXTENSIONS = [
   ".mkv",
   ".webm",
   ".3gp",
-  ".m4v"
+  ".m4v",
 ];
 
 function extOf(name: string): string {

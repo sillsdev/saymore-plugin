@@ -11,10 +11,10 @@
 export function t(
   _id: string,
   defaultText: string,
-  vars?: Record<string, string | number>
+  vars?: Record<string, string | number>,
 ): string {
   if (!vars) return defaultText;
   return defaultText.replace(/\{(\w+)\}/g, (whole, key) =>
-    key in vars ? String(vars[key]) : whole
+    key in vars ? String(vars[key]) : whole,
   );
 }

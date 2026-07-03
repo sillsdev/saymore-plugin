@@ -11,14 +11,14 @@ import {
   nudgeBoundary,
   deleteSegment,
   addFinalSegmentIfAlmostComplete,
-  trimSegmentsToDuration
+  trimSegmentsToDuration,
 } from "./BoundaryRules";
 
 function s(
   start: number,
   end: number,
   transcription = "",
-  freeTranslation = ""
+  freeTranslation = "",
 ): AnnotationSegment {
   return { range: makeTimeRange(start, end), transcription, freeTranslation };
 }
@@ -44,7 +44,7 @@ describe("insertBoundary", () => {
     expect(r.result).toBe(BoundaryResult.Success);
     expect(ranges(r.segments)).toEqual([
       [0, 1],
-      [1, 2]
+      [1, 2],
     ]);
   });
 
@@ -53,7 +53,7 @@ describe("insertBoundary", () => {
     expect(r.result).toBe(BoundaryResult.Success);
     expect(ranges(r.segments)).toEqual([
       [0, 1],
-      [1, 2]
+      [1, 2],
     ]);
     expect(r.segments[0].transcription).toBe(""); // new left half is empty
     expect(r.segments[1].transcription).toBe("hello"); // original text follows right
@@ -80,9 +80,7 @@ describe("insertBoundary", () => {
 
   it("rejects boundary at 0 and a duplicate of an existing boundary", () => {
     expect(insertBoundary([s(0, 1)], 0).result).toBe(BoundaryResult.SegmentWillBeTooShort);
-    expect(insertBoundary([s(0, 1), s(1, 2)], 1).result).toBe(
-      BoundaryResult.SegmentWillBeTooShort
-    );
+    expect(insertBoundary([s(0, 1), s(1, 2)], 1).result).toBe(BoundaryResult.SegmentWillBeTooShort);
   });
 });
 
@@ -95,7 +93,7 @@ describe("moveBoundary + clamp matrix", () => {
     expect(ranges(r.segments)).toEqual([
       [0, 1.5],
       [1.5, 2],
-      [2, 3]
+      [2, 3],
     ]);
   });
 
@@ -139,7 +137,7 @@ describe("deleteSegment (join)", () => {
     expect(r.result).toBe(BoundaryResult.Success);
     expect(ranges(r.segments)).toEqual([
       [0, 2],
-      [2, 3]
+      [2, 3],
     ]);
     expect(r.segments[0].transcription).toBe("one two");
     expect(r.segments[0].freeTranslation).toBe("uno dos");
@@ -172,7 +170,7 @@ describe("addFinalSegmentIfAlmostComplete", () => {
     const r = addFinalSegmentIfAlmostComplete([s(0, 8)], 10);
     expect(ranges(r)).toEqual([
       [0, 8],
-      [8, 10]
+      [8, 10],
     ]);
     expect(r[1].transcription).toBe(IGNORE_MARKER);
   });
@@ -191,7 +189,7 @@ describe("trimSegmentsToDuration", () => {
     const r = trimSegmentsToDuration([s(0, 1), s(1, 2.5), s(3, 4)], 2);
     expect(ranges(r)).toEqual([
       [0, 1],
-      [1, 2]
+      [1, 2],
     ]);
   });
 });

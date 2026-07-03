@@ -4,7 +4,7 @@ import { csFloatToString, parseCsFloat } from "./csFloat";
 import {
   ANNOTATIONS_FOLDER_SUFFIX,
   CAREFUL_SUFFIX,
-  TRANSLATION_SUFFIX
+  TRANSLATION_SUFFIX,
 } from "../model/SayMoreConstants";
 
 /**
@@ -34,7 +34,7 @@ function suffixFor(kind: OralAnnotationKind): string {
 export function segmentWavName(
   mediaFileName: string,
   range: TimeRange,
-  kind: OralAnnotationKind
+  kind: OralAnnotationKind,
 ): string {
   const folder = oralAnnotationsFolderName(mediaFileName);
   return `${folder}/${csFloatToString(range.start)}_to_${csFloatToString(range.end)}${suffixFor(kind)}`;
@@ -60,15 +60,14 @@ function parseEntry(mediaFileName: string, name: string): OralFileEntry | undefi
   const m = FILE_RE.exec(base);
   if (!m) return undefined;
   const [, startTok, endTok, kindTok] = m;
-  const kind: OralAnnotationKind =
-    kindTok.toLowerCase() === "_careful" ? "Careful" : "Translation";
+  const kind: OralAnnotationKind = kindTok.toLowerCase() === "_careful" ? "Careful" : "Translation";
   return {
     name,
     start: parseCsFloat(startTok),
     end: parseCsFloat(endTok),
     rawStartToken: startTok,
     rawEndToken: endTok,
-    kind
+    kind,
   };
 }
 
@@ -121,12 +120,12 @@ export class OralAnnotationIndex {
 
   private constructor(
     private readonly adapter: FileSystemAdapter,
-    private readonly mediaFileName: string
+    private readonly mediaFileName: string,
   ) {}
 
   static async build(
     adapter: FileSystemAdapter,
-    mediaFileName: string
+    mediaFileName: string,
   ): Promise<OralAnnotationIndex> {
     const index = new OralAnnotationIndex(adapter, mediaFileName);
     await index.refresh();
@@ -149,7 +148,7 @@ export class OralAnnotationIndex {
     const startTok = csFloatToString(range.start);
     const endTok = csFloatToString(range.end);
     return this.entries.filter(
-      (e) => csFloatToString(e.start) === startTok && csFloatToString(e.end) === endTok
+      (e) => csFloatToString(e.start) === startTok && csFloatToString(e.end) === endTok,
     );
   }
 
@@ -180,7 +179,7 @@ export class OralAnnotationIndex {
   /** Read a segment's recording bytes, or undefined if absent. */
   async readSegmentWav(
     range: TimeRange,
-    kind: OralAnnotationKind
+    kind: OralAnnotationKind,
   ): Promise<Uint8Array | undefined> {
     const entry = this.getFilesForRange(range).find((e) => e.kind === kind);
     if (!entry) return undefined;

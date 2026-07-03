@@ -5,7 +5,7 @@ function counterCommand(log: string[], name: string): Command {
   return {
     label: name,
     apply: () => log.push(`+${name}`),
-    revert: () => log.push(`-${name}`)
+    revert: () => log.push(`-${name}`),
   };
 }
 
@@ -37,13 +37,13 @@ describe("UndoStack", () => {
       label: "move",
       apply: () => {},
       revert: () => {},
-      fileOps: [{ kind: "rename", from: "a.wav", to: "b.wav" }]
+      fileOps: [{ kind: "rename", from: "a.wav", to: "b.wav" }],
     });
     stack.do({
       label: "delete",
       apply: () => {},
       revert: () => {},
-      fileOps: [{ kind: "delete", name: "c.wav" }]
+      fileOps: [{ kind: "delete", name: "c.wav" }],
     });
     expect(stack.collectFileOps()).toHaveLength(2);
     stack.undo();

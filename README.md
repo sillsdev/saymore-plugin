@@ -11,20 +11,24 @@ This README covers only how to run and test the package.
 
 ## Ground rules
 
-- **yarn classic only — never npm.**
-- Own `package.json` + `yarn.lock`; no workspaces.
+- **Vite+ (`vp`) + pnpm — never npm or yarn.** Run `vp install` after pulling. See
+  [`AGENTS.md`](AGENTS.md).
+- Own `package.json` + `pnpm-lock.yaml`. `pnpm-workspace.yaml` exists only to hold
+  the Vite+ catalog that pins tooling versions; there are no sub-packages.
 - Own React 18 (the plugin hosts this in an iframe/webview), but keeps lameta team
   conventions: Emotion `css` prop, MobX 6 + `observer`, colocated `*.spec.ts`.
-- Vite 5 / Vitest 3 / TS 5.5 to match lameta.
+- Built on Vite+ (Vite 8 / Rolldown / Vitest 4 / Oxlint / Oxfmt) with the TS 6
+  preview compiler.
 
 ## Scripts
 
 ```sh
-yarn install
-yarn dev      # Vite dev server — renders the shell
-yarn build    # tsc --noEmit && vite build
-yarn test     # vitest run (node env by default; component specs opt into happy-dom)
-yarn lint     # eslint .
+vp install    # install deps (pnpm under the hood)
+vp dev        # Vite dev server — renders the shell
+vp build      # production build (Vite + Rolldown) → dist/
+vp preview    # serve the production build locally
+vp test       # Vitest (node env by default; component specs opt into happy-dom)
+vp check      # format (Oxfmt) + lint & type-check (Oxlint) — run before committing
 ```
 
 ## Layout

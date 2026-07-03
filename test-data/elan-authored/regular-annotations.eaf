@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ANNOTATION_DOCUMENT AUTHOR="ELAN" DATE="2019-03-14T09:00:00+00:00" FORMAT="2.8" VERSION="2.8" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.mpi.nl/tools/elan/EAFv2.8.xsd">
+  <HEADER MEDIA_FILE="" TIME_UNITS="milliseconds">
+    <MEDIA_DESCRIPTOR MEDIA_URL="longerSound.wav" MIME_TYPE="audio/x-wav"/>
+    <PROPERTY NAME="lastUsedAnnotationId">6</PROPERTY>
+  </HEADER>
+  <!--
+    ELAN "regular annotations": interior TIME_SLOTs omit TIME_VALUE and must be
+    interpolated evenly between the surrounding anchored slots (ts1=0, ts4=4000
+    -> ts2=1333, ts3=2667). Also carries a foreign tier ("Notes") that a
+    DOM-preserving save MUST keep. Fixture for the F1 (Model & EAF) track.
+  -->
+  <TIME_ORDER>
+    <TIME_SLOT TIME_SLOT_ID="ts1" TIME_VALUE="0"/>
+    <TIME_SLOT TIME_SLOT_ID="ts2"/>
+    <TIME_SLOT TIME_SLOT_ID="ts3"/>
+    <TIME_SLOT TIME_SLOT_ID="ts4" TIME_VALUE="4000"/>
+  </TIME_ORDER>
+  <TIER DEFAULT_LOCALE="ipa-ext" LINGUISTIC_TYPE_REF="Transcription" TIER_ID="Transcription">
+    <ANNOTATION>
+      <ALIGNABLE_ANNOTATION ANNOTATION_ID="a1" TIME_SLOT_REF1="ts1" TIME_SLOT_REF2="ts2">
+        <ANNOTATION_VALUE>uno</ANNOTATION_VALUE>
+      </ALIGNABLE_ANNOTATION>
+    </ANNOTATION>
+    <ANNOTATION>
+      <ALIGNABLE_ANNOTATION ANNOTATION_ID="a2" TIME_SLOT_REF1="ts2" TIME_SLOT_REF2="ts3">
+        <ANNOTATION_VALUE>dos</ANNOTATION_VALUE>
+      </ALIGNABLE_ANNOTATION>
+    </ANNOTATION>
+    <ANNOTATION>
+      <ALIGNABLE_ANNOTATION ANNOTATION_ID="a3" TIME_SLOT_REF1="ts3" TIME_SLOT_REF2="ts4">
+        <ANNOTATION_VALUE>tres</ANNOTATION_VALUE>
+      </ALIGNABLE_ANNOTATION>
+    </ANNOTATION>
+  </TIER>
+  <TIER DEFAULT_LOCALE="en" LINGUISTIC_TYPE_REF="Translation" PARENT_REF="Transcription" TIER_ID="Phrase Free Translation">
+    <ANNOTATION>
+      <REF_ANNOTATION ANNOTATION_ID="a4" ANNOTATION_REF="a1">
+        <ANNOTATION_VALUE>one</ANNOTATION_VALUE>
+      </REF_ANNOTATION>
+    </ANNOTATION>
+  </TIER>
+  <TIER DEFAULT_LOCALE="en" LINGUISTIC_TYPE_REF="Translation" PARENT_REF="Transcription" TIER_ID="Notes">
+    <ANNOTATION>
+      <REF_ANNOTATION ANNOTATION_ID="a6" ANNOTATION_REF="a1">
+        <ANNOTATION_VALUE>foreign-tier note that must survive round-trip</ANNOTATION_VALUE>
+      </REF_ANNOTATION>
+    </ANNOTATION>
+  </TIER>
+  <LINGUISTIC_TYPE GRAPHIC_REFERENCES="false" LINGUISTIC_TYPE_ID="Transcription" TIME_ALIGNABLE="true"/>
+  <LINGUISTIC_TYPE CONSTRAINTS="Symbolic_Association" GRAPHIC_REFERENCES="false" LINGUISTIC_TYPE_ID="Translation" TIME_ALIGNABLE="false"/>
+  <LOCALE LANGUAGE_CODE="ipa-ext" VARIANT="IPA Extended"/>
+  <LOCALE COUNTRY_CODE="US" LANGUAGE_CODE="en"/>
+  <CONSTRAINT DESCRIPTION="1-1 association with a parent annotation" STEREOTYPE="Symbolic_Association"/>
+</ANNOTATION_DOCUMENT>

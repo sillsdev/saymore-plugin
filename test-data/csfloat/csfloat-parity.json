@@ -1,0 +1,28 @@
+{
+  "description": "C# net48 float32 filename-formatting parity table for csFloat.ts. 'invariant' is the canonical token our tool writes; 'deDE' is a comma-decimal sample our scanner must read.",
+  "suffixes": { "careful": "_Careful.wav", "translation": "_Translation.wav", "folder": "_Annotations" },
+  "entries": [
+    {"input": 0, "float32RoundTrip": 0, "float32Bits": 0, "invariant": "0", "deDE": "0"},
+    {"input": 0.001, "float32RoundTrip": 0.001, "float32Bits": 981668463, "invariant": "0.001", "deDE": "0,001"},
+    {"input": 0.46, "float32RoundTrip": 0.46, "float32Bits": 1055622431, "invariant": "0.46", "deDE": "0,46"},
+    {"input": 0.1, "float32RoundTrip": 0.1, "float32Bits": 1036831949, "invariant": "0.1", "deDE": "0,1"},
+    {"input": 0.2, "float32RoundTrip": 0.2, "float32Bits": 1045220557, "invariant": "0.2", "deDE": "0,2"},
+    {"input": 0.3, "float32RoundTrip": 0.3, "float32Bits": 1050253722, "invariant": "0.3", "deDE": "0,3"},
+    {"input": 0.75, "float32RoundTrip": 0.75, "float32Bits": 1061158912, "invariant": "0.75", "deDE": "0,75"},
+    {"input": 1.25, "float32RoundTrip": 1.25, "float32Bits": 1067450368, "invariant": "1.25", "deDE": "1,25"},
+    {"input": 1, "float32RoundTrip": 1, "float32Bits": 1065353216, "invariant": "1", "deDE": "1"},
+    {"input": 2.121, "float32RoundTrip": 2.121, "float32Bits": 1074249335, "invariant": "2.121", "deDE": "2,121"},
+    {"input": 2.5, "float32RoundTrip": 2.5, "float32Bits": 1075838976, "invariant": "2.5", "deDE": "2,5"},
+    {"input": 0.33333333333333331, "float32RoundTrip": 0.333333343, "float32Bits": 1051372203, "invariant": "0.3333333", "deDE": "0,3333333"},
+    {"input": 0.66666666666666663, "float32RoundTrip": 0.6666667, "float32Bits": 1059760811, "invariant": "0.6666667", "deDE": "0,6666667"},
+    {"input": 3.1415927, "float32RoundTrip": 3.14159274, "float32Bits": 1078530011, "invariant": "3.141593", "deDE": "3,141593"},
+    {"input": 7.89, "float32RoundTrip": 7.89, "float32Bits": 1090288353, "invariant": "7.89", "deDE": "7,89"},
+    {"input": 10, "float32RoundTrip": 10, "float32Bits": 1092616192, "invariant": "10", "deDE": "10"},
+    {"input": 12.3456789, "float32RoundTrip": 12.3456793, "float32Bits": 1095075815, "invariant": "12.34568", "deDE": "12,34568"},
+    {"input": 100.12345, "float32RoundTrip": 100.123451, "float32Bits": 1120419637, "invariant": "100.1235", "deDE": "100,1235"},
+    {"input": 123.456, "float32RoundTrip": 123.456, "float32Bits": 1123477881, "invariant": "123.456", "deDE": "123,456"},
+    {"input": 1234.5678, "float32RoundTrip": 1234.56775, "float32Bits": 1150964267, "invariant": "1234.568", "deDE": "1234,568"},
+    {"input": 3600, "float32RoundTrip": 3600, "float32Bits": 1163984896, "invariant": "3600", "deDE": "3600"},
+    {"input": 5999.999, "float32RoundTrip": 5999.999, "float32Bits": 1169915902, "invariant": "5999.999", "deDE": "5999,999"}
+  ]
+}

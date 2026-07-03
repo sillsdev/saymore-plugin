@@ -1,0 +1,22 @@
+{
+  // See D:/lameta/plugins/docs/plugin-authoring.md.
+  id: "org.sil.saymore-audio",
+  name: "SayMore Audio Annotation",
+  version: "0.0.0", // display only; semver
+  apiVersion: 1, // plugin API major version
+  description: "SayMore-compatible audio annotation. Manual Segmenter now; Auto Segmenter and the Transcription grid to follow.",
+  author: "SIL Global",
+
+  permissions: ["companionFiles"],
+
+  tabs: [
+    {
+      id: "segmenter",
+      label: { en: "Audio" },
+      entry: "index.html", // loaded into the tab's iframe
+      match: { lametaTypes: ["Audio"] },
+      // Leave the built-in viewer as the default tab for now.
+      claimDefault: false,
+    },
+  ],
+}

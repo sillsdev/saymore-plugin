@@ -11,7 +11,8 @@
     "build": "vp build",
     "preview": "vp preview",
     "test": "vp test",
-    "check": "vp check"
+    "check": "vp check",
+    "package": "node scripts/package-plugin.mjs"
   },
   "dependencies": {
     "@emotion/react": "^11.13.5",

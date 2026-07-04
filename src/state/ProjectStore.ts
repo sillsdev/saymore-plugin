@@ -8,7 +8,13 @@ import { computeEnvelope } from "../audio/envelope";
 import { MediaElementPlaybackEngine } from "../audio/PlaybackEngine";
 import { AnnotationDocumentStore } from "./AnnotationDocumentStore";
 import { SegmenterViewModel } from "./SegmenterViewModel";
+import { RecorderViewModel } from "./recorder/RecorderViewModel";
+import type { RecorderKind } from "./recorder/recorderTypes";
+import { SpyRecorder } from "../audio/recording/Recorder";
 import { autoSegmentToEaf, buildAutoSegmentedEafXml } from "../audio/autoSegmentToEaf";
+
+/** Which view the Annotations pane shows (plugin + harness UI; Track C consumes). */
+export type AnnotationsView = "grid" | "segmenter" | "recorder-careful" | "recorder-translation";
 
 function extOf(name: string): string {
   const i = name.lastIndexOf(".");
@@ -49,6 +55,14 @@ export class ProjectStore {
   envelope: Envelope | undefined = undefined;
   document: AnnotationDocumentStore | undefined = undefined;
   segmenter: SegmenterViewModel | undefined = undefined;
+
+  /** Shared oral-annotation index (segmenter + recorder use the same instance). */
+  oralIndex: OralAnnotationIndex | undefined = undefined;
+
+  /** Which view the Annotations pane currently shows. */
+  annotationsView: AnnotationsView = "segmenter";
+  /** The active recorder, when {@link annotationsView} is a recorder mode. */
+  recorder: RecorderViewModel | undefined = undefined;
 
   /**
    * State A (standalone): media is loaded (envelope ready) but has no `.eaf` yet
@@ -157,8 +171,59 @@ export class ProjectStore {
     runInAction(() => {
       this.document = document;
       this.segmenter = segmenter;
+      this.oralIndex = oralIndex;
       this.startAnnotatingMedia = undefined;
     });
+  }
+
+  // ── Annotations-pane view (grid / segmenter / recorder) ─────────────────────
+  /** Show the transcription grid. Disposes any active recorder. */
+  showGrid(): void {
+    this.disposeRecorder();
+    this.annotationsView = "grid";
+  }
+
+  /** Show the manual segmenter. Disposes any active recorder. */
+  showSegmenter(): void {
+    this.disposeRecorder();
+    this.annotationsView = "segmenter";
+  }
+
+  /**
+   * Open the Careful Speech / Oral Translation recorder over the current
+   * session. Builds a {@link RecorderViewModel} with its own
+   * MediaElementPlaybackEngine and the shared oralIndex/document. The real
+   * MicRecorder is wired in at the merge step; until then a {@link SpyRecorder}
+   * placeholder keeps the surface functional (and specs/CI running).
+   */
+  openRecorder(kind: RecorderKind): void {
+    if (!this.document || !this.oralIndex) return;
+    this.disposeRecorder();
+    const playback = new MediaElementPlaybackEngine(this.mediaUrl ?? "");
+    const recorder = new RecorderViewModel({
+      kind,
+      document: this.document,
+      playback,
+      recorder: new SpyRecorder(),
+      oralIndex: this.oralIndex,
+      adapter: this.singleFileMode ? undefined : this.adapter,
+      mediaFileName: this.mediaFileName,
+    });
+    runInAction(() => {
+      this.recorder = recorder;
+      this.annotationsView = kind === "Careful" ? "recorder-careful" : "recorder-translation";
+    });
+  }
+
+  /** Leave the recorder, back to the grid. (Combined-WAV regen: merge step.) */
+  closeRecorder(): void {
+    this.disposeRecorder();
+    this.annotationsView = "grid";
+  }
+
+  private disposeRecorder(): void {
+    this.recorder?.dispose();
+    this.recorder = undefined;
   }
 
   /**
@@ -203,6 +268,7 @@ export class ProjectStore {
   }
 
   private reset(): void {
+    this.disposeRecorder();
     this.segmenter?.dispose();
     if (this.mediaUrl && typeof URL !== "undefined" && URL.revokeObjectURL) {
       URL.revokeObjectURL(this.mediaUrl);
@@ -213,6 +279,8 @@ export class ProjectStore {
     this.envelope = undefined;
     this.document = undefined;
     this.segmenter = undefined;
+    this.oralIndex = undefined;
+    this.annotationsView = "segmenter";
     this.startAnnotatingMedia = undefined;
     this.autoSegmentProgress = 0;
     this.error = undefined;

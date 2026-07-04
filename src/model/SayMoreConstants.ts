@@ -48,5 +48,31 @@ export const TRANSLATION_SUFFIX = "_Translation.wav";
 /** The `.annotations.eaf` companion suffix (media extension is retained before it). */
 export const ANNOTATIONS_EAF_SUFFIX = ".annotations.eaf";
 
+// ── Oral-annotation recorder (Careful Speech / Oral Translation) ──────────────
+
+/**
+ * Highlight color of the current (selected) segment in the recorder. SayMore
+ * uses `Color.Moccasin` (`OralAnnotationRecorderDlgBase._selectedSegmentHighlightColor`).
+ */
+export const SELECTED_SEGMENT_HIGHLIGHT_COLOR = "#FFE4B5"; // Moccasin
+
+/**
+ * Stable l10n id + English default for the push-to-talk too-short warning
+ * (SayMore `RecordingTooShortMessage.WhenSpaceOrMouseIsValid`). A take shorter
+ * than {@link MIN_SEGMENT_LENGTH_MS} is discarded and this is shown.
+ */
+export const RECORDER_TOO_SHORT_WARNING_ID = "recorder.warning.tooShort";
+export const RECORDER_TOO_SHORT_WARNING_TEXT =
+  "Whoops. You need to hold down the SPACE BAR or mouse button while talking.";
+
+/** How long the recorder's transient too-short warning stays before auto-clearing. */
+export const RECORDER_TOO_SHORT_WARNING_MS = 4000;
+
+/**
+ * Arrow-key nudge step (ms) for the virtual new-segment end boundary. SayMore:
+ * `MillisecondsTo{Advance,Backup}SegmentBoundaryOn{Right,Left}Arrow` = 5.
+ */
+export const NEW_BOUNDARY_NUDGE_MS = 5;
+
 /** Prefer this media file within a session folder when present. */
 export const STANDARD_AUDIO_SUFFIX = "_StandardAudio.wav";

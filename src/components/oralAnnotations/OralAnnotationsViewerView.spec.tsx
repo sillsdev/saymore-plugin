@@ -96,14 +96,40 @@ describe("OralAnnotationsViewerView", () => {
     });
     render(<OralAnnotationsViewerView store={store} />);
 
-    expect(screen.queryByTestId("oralann-cursor")).toBeNull(); // hidden while not playing
+    expect(screen.queryByTestId("oralann-cursor")).toBeNull(); // hidden while stopped at position 0
 
     fireEvent.click(screen.getByTestId("oralann-play"));
     const cursor = screen.getByTestId("oralann-cursor") as HTMLElement;
-    // At position 0 the cursor should sit exactly at the label column's width
-    // (the row label is 90px — see LABEL_WIDTH), i.e. the canvas' own left
-    // edge, not at 0 (which would be over the labels).
-    expect(cursor.style.left).toBe("90px");
+    // The cursor lives inside the waveform-only column now (a sibling of the
+    // label column, not a child of it), so position 0 is translateX(0) —
+    // no manual label-width offset needed, and never over the labels.
+    expect(cursor.style.transform).toBe("translateX(0px)");
+    expect(cursor.parentElement).toBe(screen.getByTestId("oralann-row-source").parentElement);
+  });
+
+  it("click-to-seek while stopped moves the cursor and the audio position; ignored while playing", () => {
+    vi.spyOn(wavCodec, "decodeWav").mockReturnValue({
+      channels: [new Float32Array(10), new Float32Array(10)],
+      sampleRate: 48000,
+    });
+    const store = fakeStore({
+      oralViewer: { bytes: new Uint8Array([1]), durationSec: 10, loading: false },
+    });
+    render(<OralAnnotationsViewerView store={store} />);
+
+    // contentWidthPx = 10s * 80px/s = 800px; clicking at the column's midpoint -> 5s.
+    const column = screen.getByTestId("oralann-row-source").parentElement!;
+    vi.spyOn(column, "getBoundingClientRect").mockReturnValue({ left: 0 } as DOMRect);
+    fireEvent.click(column, { clientX: 400 });
+
+    expect(screen.getByTestId("oralann-time-readout").textContent).toBe("05.0 / 10.0");
+    const cursor = screen.getByTestId("oralann-cursor") as HTMLElement;
+    expect(cursor.style.transform).toBe("translateX(400px)");
+
+    // Now playing: clicking elsewhere must not re-seek.
+    fireEvent.click(screen.getByTestId("oralann-play"));
+    fireEvent.click(column, { clientX: 0 });
+    expect(screen.getByTestId("oralann-time-readout").textContent).toBe("05.0 / 10.0");
   });
 
   it("shows the error message when the viewer failed to load", () => {

@@ -6,11 +6,19 @@ import { PlaybackCursor } from "./PlaybackCursor";
 describe("PlaybackCursor", () => {
   afterEach(() => cleanup());
 
-  it("renders at the given x position by default (visible)", () => {
+  it("renders at the given x position via transform (compositor-only, not left)", () => {
     render(<PlaybackCursor xPx={42} height={100} />);
     const cursor = screen.getByTestId("playback-cursor") as HTMLElement;
-    expect(cursor.style.left).toBe("42px");
+    expect(cursor.style.transform).toBe("translateX(42px)");
+    expect(cursor.style.left).toBe("");
     expect(cursor.style.height).toBe("100px");
+  });
+
+  it("forwards a ref to the underlying element (for an rAF loop to write style.transform directly)", () => {
+    const ref = { current: null as HTMLDivElement | null };
+    render(<PlaybackCursor ref={ref} xPx={0} height={100} />);
+    expect(ref.current).toBeInstanceOf(HTMLDivElement);
+    expect(ref.current?.getAttribute("data-testid")).toBe("playback-cursor");
   });
 
   it("renders nothing when visible is false (not playing)", () => {

@@ -69,3 +69,19 @@ export function downsampleChannels(
   }
   return points;
 }
+
+/**
+ * Click-to-seek: a click offset (px, relative to the waveform column's own
+ * left edge) -> the playback position it represents, clamped to the clip.
+ * The inverse of the fraction-of-width mapping `clipCursorXPx` uses for the
+ * cursor itself.
+ */
+export function seekPositionSec(
+  offsetPx: number,
+  contentWidthPx: number,
+  durationSec: number,
+): number {
+  if (contentWidthPx <= 0) return 0;
+  const fraction = Math.min(1, Math.max(0, offsetPx / contentWidthPx));
+  return fraction * durationSec;
+}

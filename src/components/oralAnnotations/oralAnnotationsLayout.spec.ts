@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { downsampleChannels, splitOralAnnotationsChannels } from "./oralAnnotationsLayout";
+import {
+  downsampleChannels,
+  seekPositionSec,
+  splitOralAnnotationsChannels,
+} from "./oralAnnotationsLayout";
 
 describe("splitOralAnnotationsChannels", () => {
   it("splits source (N channels) / careful / translation per generateOralAnnotationsWav's layout", () => {
@@ -51,5 +55,23 @@ describe("downsampleChannels", () => {
     expect(downsampleChannels([new Float32Array([0])], 0, 10)).toEqual([]);
     expect(downsampleChannels([new Float32Array([0])], 10, 0)).toEqual([]);
     expect(downsampleChannels([new Float32Array(0)], 10, 10)).toEqual([]);
+  });
+});
+
+describe("seekPositionSec", () => {
+  it("maps a click offset to the position it represents (inverse of clipCursorXPx)", () => {
+    expect(seekPositionSec(50, 100, 10)).toBe(5);
+    expect(seekPositionSec(0, 100, 10)).toBe(0);
+    expect(seekPositionSec(100, 100, 10)).toBe(10);
+  });
+
+  it("clamps out-of-range offsets to the clip's bounds", () => {
+    expect(seekPositionSec(-10, 100, 10)).toBe(0);
+    expect(seekPositionSec(150, 100, 10)).toBe(10);
+  });
+
+  it("is 0 for a zero/negative content width rather than dividing by zero", () => {
+    expect(seekPositionSec(50, 0, 10)).toBe(0);
+    expect(seekPositionSec(50, -1, 10)).toBe(0);
   });
 });

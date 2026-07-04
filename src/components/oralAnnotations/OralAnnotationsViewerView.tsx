@@ -12,10 +12,13 @@ import { LAMETA_DARK_BLUE, LAMETA_DARK_GREEN, LAMETA_UI_FONT } from "../../lamet
 import { PlaybackCursor } from "../waveform/PlaybackCursor";
 import { drawMiniWaveform } from "../recorder/miniWaveform";
 import { clipCursorXPx } from "../recorder/playbackCursor";
-import { StubButton } from "../shell/stub";
-import { downsampleChannels, splitOralAnnotationsChannels } from "./oralAnnotationsLayout";
+import {
+  downsampleChannels,
+  seekPositionSec,
+  splitOralAnnotationsChannels,
+} from "./oralAnnotationsLayout";
 import { formatPosTotal } from "./timeReadout";
-import regenerateIconUrl from "./icons/RegenerateAnnotationFile.png";
+import { RefreshIcon } from "./RefreshIcon";
 
 const ROW_HEIGHT = 56;
 const LABEL_WIDTH = 90;
@@ -25,8 +28,9 @@ const LABEL_WIDTH = 90;
  * `<media>.oralAnnotations.wav` — three stacked labeled waveform rows
  * (Source/Careful/Translation, one channel group each per
  * `generateOralAnnotationsWav`'s layout) sharing one time axis, a single
- * playback cursor spanning all three, and a `pos / total` readout. No zoom
- * (SayMore's viewer doesn't have one) — fixed fit-with-hscroll.
+ * playback cursor spanning all three, click-to-seek while stopped, and a
+ * `pos / total` readout. No zoom (SayMore's viewer doesn't have one) — fixed
+ * fit-with-hscroll.
  */
 export const OralAnnotationsViewerView = observer(function OralAnnotationsViewerView(props: {
   store: ProjectStore;
@@ -34,12 +38,14 @@ export const OralAnnotationsViewerView = observer(function OralAnnotationsViewer
   const { store } = props;
   const viewer = store.oralViewer;
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const cursorRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [positionSec, setPositionSec] = useState(0);
 
   // One <audio> element on a blob URL of the combined file per byte version —
   // the browser downmixes the multichannel WAV for playback (SayMore just
-  // plays the file too).
+  // plays the file too). `timeupdate` (~4-66Hz) drives the text readout only;
+  // the cursor's own smoothness comes from the rAF loop below.
   useEffect(() => {
     const bytes = viewer?.bytes;
     setIsPlaying(false);
@@ -66,6 +72,31 @@ export const OralAnnotationsViewerView = observer(function OralAnnotationsViewer
     };
   }, [viewer?.bytes]);
 
+  const contentWidthPx = Math.max(
+    1,
+    Math.round((viewer?.durationSec ?? 0) * PIXELS_PER_SECOND_AT_100),
+  );
+
+  // Smooth cursor: while playing, move it via a rAF loop writing
+  // style.transform directly on the forwarded ref — a compositor-only
+  // change, unlike `timeupdate`-driven React state (~4-66Hz, visibly jumpy,
+  // and `left` would relayout every update).
+  useEffect(() => {
+    if (!isPlaying) return;
+    let raf: number;
+    const tick = (): void => {
+      const audio = audioRef.current;
+      const cursor = cursorRef.current;
+      if (audio && cursor) {
+        const x = clipCursorXPx(audio.currentTime, viewer?.durationSec ?? 0, contentWidthPx);
+        cursor.style.transform = `translateX(${x}px)`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isPlaying, viewer?.durationSec, contentWidthPx]);
+
   if (!viewer) return null;
 
   function handlePlay(): void {
@@ -77,18 +108,21 @@ export const OralAnnotationsViewerView = observer(function OralAnnotationsViewer
     if (audio) audio.pause();
     setIsPlaying(false);
   }
+  /** Click-to-seek: only while stopped (SayMore parity); Play resumes from here. */
+  function handleSeek(e: React.MouseEvent<HTMLDivElement>): void {
+    if (isPlaying || !viewer?.durationSec) return;
+    const offsetPx = e.clientX - e.currentTarget.getBoundingClientRect().left;
+    const seconds = seekPositionSec(offsetPx, contentWidthPx, viewer.durationSec);
+    setPositionSec(seconds);
+    if (audioRef.current) audioRef.current.currentTime = seconds;
+  }
 
   const decoded = viewer.bytes ? safeDecodeWav(viewer.bytes) : undefined;
   const sourceChannelCount = store.envelope?.channels.length ?? 1;
   const groups = decoded
     ? splitOralAnnotationsChannels(decoded.channels, sourceChannelCount)
     : undefined;
-  const contentWidthPx = Math.max(1, Math.round(viewer.durationSec * PIXELS_PER_SECOND_AT_100));
-  // The cursor is a sibling of the label+canvas Rows inside one wrapper (see
-  // below), so its x is relative to that whole grid — offset past the label
-  // column so it anchors inside the waveform column (x=0 at the canvas'
-  // left edge), not over the row labels.
-  const cursorX = LABEL_WIDTH + clipCursorXPx(positionSec, viewer.durationSec, contentWidthPx);
+  const cursorX = clipCursorXPx(positionSec, viewer.durationSec, contentWidthPx);
 
   return (
     <div
@@ -109,20 +143,21 @@ export const OralAnnotationsViewerView = observer(function OralAnnotationsViewer
       >
         <Button
           data-testid="oralann-play"
-          variant="contained"
+          variant={isPlaying ? "outlined" : "contained"}
           disableElevation
           disabled={!viewer.bytes || isPlaying}
           onClick={handlePlay}
-          sx={toolbarButtonSx("#2e7d32", "#fff")}
+          sx={transportButtonSx(!isPlaying)}
         >
           ▶ {t("oralann.play", "Play")}
         </Button>
         <Button
           data-testid="oralann-stop"
-          variant="outlined"
+          variant={isPlaying ? "contained" : "outlined"}
+          disableElevation
           disabled={!isPlaying}
           onClick={handleStop}
-          sx={toolbarButtonSx("#90a4ae", "#37474f")}
+          sx={transportButtonSx(isPlaying)}
         >
           ⏹ {t("oralann.stop", "Stop")}
         </Button>
@@ -139,18 +174,22 @@ export const OralAnnotationsViewerView = observer(function OralAnnotationsViewer
           variant="outlined"
           disabled={viewer.isRegenerating}
           onClick={() => void viewer.regenerate()}
-          sx={toolbarButtonSx("#90a4ae", "#37474f")}
+          sx={{
+            textTransform: "none",
+            fontFamily: "inherit",
+            fontSize: 13,
+            fontWeight: 600,
+            gap: "4px",
+            py: "3px",
+            px: "10px",
+            color: "#37474f",
+            borderColor: "#90a4ae",
+            "&.Mui-disabled": { opacity: 0.5 },
+          }}
         >
-          <img
-            src={regenerateIconUrl}
-            alt=""
-            width={14}
-            height={14}
-            css={css({ marginRight: 4 })}
-          />
+          <RefreshIcon size={14} />
           {t("oralann.regenerate", "Regenerate")}
         </Button>
-        <StubButton feature={t("annotations.help", "Help")}>?</StubButton>
       </div>
 
       <div
@@ -159,41 +198,54 @@ export const OralAnnotationsViewerView = observer(function OralAnnotationsViewer
         `}
       >
         {groups ? (
-          <div
-            css={css`
-              position: relative;
-              width: fit-content;
-              min-width: 100%;
-            `}
-          >
-            <Row
-              testId="oralann-row-source"
-              label={t("oralann.source", "Source")}
-              color={LAMETA_DARK_BLUE}
-              channels={groups.source}
-              widthPx={contentWidthPx}
-            />
-            <Row
-              testId="oralann-row-careful"
-              label={t("oralann.careful", "Careful")}
-              color={LAMETA_DARK_GREEN}
-              channels={[groups.careful]}
-              widthPx={contentWidthPx}
-            />
-            <Row
-              testId="oralann-row-translation"
-              label={t("oralann.translation", "Translation")}
-              color={LAMETA_DARK_GREEN}
-              channels={[groups.translation]}
-              widthPx={contentWidthPx}
-            />
-            <PlaybackCursor
-              testId="oralann-cursor"
-              xPx={cursorX}
-              height={ROW_HEIGHT * 3}
-              color="#43a047"
-              visible={isPlaying}
-            />
+          <div css={css({ display: "flex" })}>
+            <div
+              css={css`
+                display: flex;
+                flex-direction: column;
+                flex-shrink: 0;
+                width: ${LABEL_WIDTH}px;
+              `}
+            >
+              <RowLabel>{t("oralann.source", "Source")}</RowLabel>
+              <RowLabel>{t("oralann.careful", "Careful")}</RowLabel>
+              <RowLabel>{t("oralann.translation", "Translation")}</RowLabel>
+            </div>
+            <div
+              onClick={handleSeek}
+              css={css`
+                position: relative;
+                width: fit-content;
+                cursor: ${isPlaying ? "default" : "pointer"};
+              `}
+            >
+              <RowCanvas
+                testId="oralann-row-source"
+                color={LAMETA_DARK_BLUE}
+                channels={groups.source}
+                widthPx={contentWidthPx}
+              />
+              <RowCanvas
+                testId="oralann-row-careful"
+                color={LAMETA_DARK_GREEN}
+                channels={[groups.careful]}
+                widthPx={contentWidthPx}
+              />
+              <RowCanvas
+                testId="oralann-row-translation"
+                color={LAMETA_DARK_GREEN}
+                channels={[groups.translation]}
+                widthPx={contentWidthPx}
+              />
+              <PlaybackCursor
+                ref={cursorRef}
+                testId="oralann-cursor"
+                xPx={cursorX}
+                height={ROW_HEIGHT * 3}
+                color="#43a047"
+                visible={isPlaying || positionSec > 0}
+              />
+            </div>
           </div>
         ) : (
           <p
@@ -225,9 +277,30 @@ export const OralAnnotationsViewerView = observer(function OralAnnotationsViewer
   );
 });
 
-function Row(props: {
+function RowLabel(props: { children: React.ReactNode }) {
+  return (
+    <div
+      css={css`
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        height: ${ROW_HEIGHT}px;
+        padding-right: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #37474f;
+        background: #f4f7f0;
+        border-right: 1px solid #b7d59b;
+        border-bottom: 1px solid #eceff1;
+      `}
+    >
+      {props.children}
+    </div>
+  );
+}
+
+function RowCanvas(props: {
   testId: string;
-  label: string;
   color: string;
   channels: Float32Array[];
   widthPx: number;
@@ -242,34 +315,16 @@ function Row(props: {
   }, [props.channels, props.widthPx, props.color]);
 
   return (
-    <div
+    <canvas
+      ref={canvasRef}
       data-testid={props.testId}
+      width={props.widthPx}
+      height={ROW_HEIGHT}
       css={css`
-        display: flex;
-        align-items: stretch;
-        height: ${ROW_HEIGHT}px;
+        display: block;
         border-bottom: 1px solid #eceff1;
       `}
-    >
-      <div
-        css={css`
-          display: flex;
-          align-items: center;
-          justify-content: flex-end;
-          width: ${LABEL_WIDTH}px;
-          padding-right: 8px;
-          font-size: 12px;
-          font-weight: 600;
-          color: #37474f;
-          background: #f4f7f0;
-          border-right: 1px solid #b7d59b;
-          flex-shrink: 0;
-        `}
-      >
-        {props.label}
-      </div>
-      <canvas ref={canvasRef} width={props.widthPx} height={ROW_HEIGHT} />
-    </div>
+    />
   );
 }
 
@@ -281,7 +336,7 @@ function safeDecodeWav(bytes: Uint8Array): DecodedWav | undefined {
   }
 }
 
-function toolbarButtonSx(borderColor: string, color: string) {
+function transportButtonSx(engaged: boolean) {
   return {
     textTransform: "none",
     fontFamily: "inherit",
@@ -290,8 +345,14 @@ function toolbarButtonSx(borderColor: string, color: string) {
     gap: "4px",
     py: "3px",
     px: "10px",
-    color,
-    borderColor,
+    ...(engaged
+      ? {
+          background: LAMETA_DARK_GREEN,
+          color: "#fff",
+          borderColor: LAMETA_DARK_GREEN,
+          "&:hover": { background: LAMETA_DARK_GREEN },
+        }
+      : { color: LAMETA_DARK_GREEN, borderColor: LAMETA_DARK_GREEN }),
     "&.Mui-disabled": { opacity: 0.5 },
   } as const;
 }

@@ -9,7 +9,7 @@ import { StartAnnotatingView } from "../components/shell/StartAnnotatingView";
 import { HarnessStore } from "./HarnessStore";
 import { FileTree } from "./FileTree";
 import { AnnotationsTabView } from "./AnnotationsTabView";
-import { OralAnnotationsViewerView } from "../components/oralAnnotations/OralAnnotationsViewerView";
+import { OralAnnotationsTabView } from "./OralAnnotationsTabView";
 import { LAMETA_UI_FONT } from "../lametaTheme";
 
 /**
@@ -112,7 +112,7 @@ const Pane = observer(function Pane(props: { harness: HarnessStore; store: Proje
   }
 
   if (harness.selection === "oral") {
-    return <OralAnnotationsViewerView store={store} />;
+    return <OralAnnotationsTabView store={store} />;
   }
 
   // selection === "eaf"

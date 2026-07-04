@@ -159,7 +159,11 @@ const Header = observer(function Header(props: { harness: HarnessStore }) {
       >
         {t("harness.reset", "Reset sample")}
       </Button>
-      <Button variant="outlined" sx={secondaryButtonSx} onClick={() => void harness.connectFolder()}>
+      <Button
+        variant="outlined"
+        sx={secondaryButtonSx}
+        onClick={() => void harness.connectFolder()}
+      >
         {t("harness.connectFolder", "Connect folder…")}
       </Button>
     </div>

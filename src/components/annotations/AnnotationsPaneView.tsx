@@ -1,7 +1,9 @@
 /** @jsxImportSource @emotion/react */
 import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
+import { useState } from "react";
 import Button from "@mui/material/Button";
+import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import { t } from "../../l10n";
@@ -134,9 +136,7 @@ const GridMode = observer(function GridMode(props: { store: ProjectStore }) {
             70%
           </MenuItem>
         </Select>
-        <StubButton feature={t("annotations.oralTools", "Oral Annotations Tools")}>
-          🗣 {t("annotations.oralTools", "Oral Annotations Tools")} ▾
-        </StubButton>
+        <OralAnnotationToolsMenu store={store} />
         <Button
           variant="contained"
           disableElevation
@@ -164,6 +164,60 @@ const GridMode = observer(function GridMode(props: { store: ProjectStore }) {
 
       <TranscriptionGrid store={store} />
     </div>
+  );
+});
+
+/**
+ * "Oral Annotations Tools ▾" — launches the Careful Speech / Oral Translation
+ * recorder over the current document. Enabled once the document has at least
+ * one segment (there's nothing to annotate otherwise).
+ */
+const OralAnnotationToolsMenu = observer(function OralAnnotationToolsMenu(props: {
+  store: ProjectStore;
+}) {
+  const { store } = props;
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const hasSegments = (store.document?.segments.length ?? 0) > 0;
+  const label = t("annotations.oralTools", "Oral Annotations Tools");
+
+  function openRecorder(kind: "Careful" | "Translation"): void {
+    setAnchorEl(null);
+    store.openRecorder(kind);
+  }
+
+  return (
+    <>
+      <Button
+        variant="outlined"
+        disabled={!hasSegments}
+        title={hasSegments ? undefined : stubTitle(label)}
+        onClick={(e) => setAnchorEl(e.currentTarget)}
+        sx={{
+          textTransform: "none",
+          fontFamily: "inherit",
+          fontSize: 13,
+          py: "3px",
+          px: "8px",
+          minWidth: 0,
+          gap: "4px",
+          color: "#37474f",
+          background: "#fff",
+          borderColor: "#90a4ae",
+          "&:hover": { borderColor: "#607d8b", background: "#fff" },
+          "&.Mui-disabled": { opacity: 0.65 },
+        }}
+      >
+        🗣 {label} ▾
+      </Button>
+      <Menu anchorEl={anchorEl} open={anchorEl !== null} onClose={() => setAnchorEl(null)}>
+        <MenuItem onClick={() => openRecorder("Careful")} sx={{ fontSize: 13 }}>
+          🗣 {t("annotations.carefulSpeech", "Careful Speech…")}
+        </MenuItem>
+        <MenuItem onClick={() => openRecorder("Translation")} sx={{ fontSize: 13 }}>
+          🗣 {t("annotations.oralTranslation", "Oral Translation…")}
+        </MenuItem>
+      </Menu>
+    </>
   );
 });
 

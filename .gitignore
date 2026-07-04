@@ -3,6 +3,8 @@ dist
 *.log
 *.lmplug
 .DS_Store
+test-results/
+playwright-report/
 !.vscode/
 !.vscode/settings.json
 !.vscode/extensions.json

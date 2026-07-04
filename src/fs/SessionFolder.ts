@@ -44,6 +44,19 @@ export function annotationsEafName(mediaFileName: string): string {
 }
 
 /**
+ * The media file a `<media>.annotations.eaf` annotates — the inverse of
+ * {@link annotationsEafName}. Strips the `.annotations.eaf` suffix (case-insensitive);
+ * returns the name unchanged if it doesn't carry that suffix. Used when lameta selects
+ * the `.eaf` itself (State B) so we can anchor the session on its media.
+ */
+export function deriveMediaFromEaf(eafName: string): string {
+  const suffix = ANNOTATIONS_EAF_SUFFIX.toLowerCase();
+  return eafName.toLowerCase().endsWith(suffix)
+    ? eafName.slice(0, eafName.length - suffix.length)
+    : eafName;
+}
+
+/**
  * Choose the session's media file from a list of names: only top-level media
  * files (not inside `_Annotations/`, not `.eaf`/pref files), preferring a
  * `*_StandardAudio.wav`, then audio over video, then the first candidate.

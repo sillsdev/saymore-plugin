@@ -68,6 +68,11 @@ export const ManualSegmenterView = observer(function ManualSegmenterView(props: 
         e.preventDefault();
         vm.addBoundaryAtCursor();
         break;
+      case "Tab":
+        // Keyboard boundary selection: cycle without having to click the 1px line.
+        e.preventDefault();
+        vm.cycleSelectedBoundary(e.shiftKey ? -1 : 1);
+        break;
       case "Delete":
       case "Backspace":
         e.preventDefault();

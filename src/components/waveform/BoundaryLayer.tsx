@@ -129,6 +129,12 @@ export const BoundaryLayer = observer(function BoundaryLayer(props: {
         return (
           <div
             key={`b-${i}`}
+            // Stable hooks so the boundary line (a 9px-wide hit target) can be located
+            // for automated/headless driving and assertions, not just pixel-hunted.
+            data-testid={`boundary-${i}`}
+            data-boundary-index={i}
+            data-boundary-sec={boundarySec}
+            data-selected={selected || undefined}
             onPointerDown={(e) => onBoundaryPointerDown(e, i)}
             onPointerMove={onBoundaryPointerMove}
             onPointerUp={onBoundaryPointerUp}

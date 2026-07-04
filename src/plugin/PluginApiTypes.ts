@@ -18,6 +18,16 @@ export type PluginFolderType = "session" | "person" | "project" | "project docum
 export interface PluginInitContext {
   /** The API major version lameta is speaking. Matches the plugin manifest's apiVersion. */
   apiVersion: number;
+  /**
+   * Which kind of instance this is (tab-provider model, plugin API v1+):
+   *  - "tabProvider" — the hidden instance the host queries with `lameta:getTabs` on every
+   *    selection; it has no `file`/`folder` (each query carries its own).
+   *  - "tab" — a per-file content tab; `file`/`folder`/`tab` are populated.
+   * Absent on hosts that predate the provider model (treat as "tab").
+   */
+  role?: "tab" | "tabProvider";
+  /** For a content tab, which provider-supplied tab this iframe is rendering. */
+  tab?: { id: string };
   plugin: {
     id: string;
     version: string;
@@ -78,6 +88,15 @@ export interface PluginHostApiV1 {
   writeSidecar(contents: string, name?: string): Promise<void>;
   listSidecars(): Promise<string[]>;
   companions: PluginCompanionsApiV1;
+  /**
+   * Ask the host to select another file in the current folder (rescanning the
+   * folder first so a just-created file is found). `relPath` is relative to
+   * `folder.directory`. Selecting a file tears down this iframe and recreates it
+   * bound to the newly selected file — used by the "Start Annotating" flow to
+   * select the freshly-written `<media>.annotations.eaf`. Rejects if the host
+   * build predates this method; callers should feature-detect / fall back.
+   */
+  selectFile(relPath: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,5 +128,48 @@ export interface PluginResponseMessage {
   error?: string;
 }
 
-export type PluginToHostMessage = PluginReadyMessage | PluginRequestMessage;
-export type HostToPluginMessage = PluginInitMessage | PluginResponseMessage;
+/** A tab the plugin's provider claims for a selected file (returned from `lameta:getTabs`). */
+export interface TabDescriptor {
+  /** Stable id for this tab (reaches the content iframe as `context.tab.id`). */
+  id: string;
+  /** Display label — a plain string or a language-code→string map (`en` fallback). */
+  label: string | Record<string, string>;
+  /** Open this tab instead of the built-in viewer. */
+  claimDefault?: boolean;
+  /** Tiebreak among default claimants (higher wins). */
+  defaultPriority?: number;
+}
+
+/** The per-selection context the host passes with a `lameta:getTabs` query. */
+export interface TabProviderQuery {
+  file: {
+    name: string;
+    extension: string;
+    mimeType: string;
+    lametaType: string;
+    path: string;
+    uri: string;
+  };
+  folder: { type: PluginFolderType; directory: string };
+}
+
+/**
+ * Host → tab-provider: "which tabs do you claim for this file?" Sent on EVERY selection
+ * change (query-per-selection, uncached — the answer may differ for the same file as its
+ * companions change). While a query is outstanding the provider's `companions.*` calls
+ * resolve against `file`, so the handler can check companion state live.
+ */
+export interface PluginGetTabsMessage extends TabProviderQuery {
+  type: "lameta:getTabs";
+  id: number;
+}
+
+/** Tab-provider → host: the claimed tabs (empty array = no tab for this file). */
+export interface PluginTabsMessage {
+  type: "lameta:tabs";
+  id: number;
+  tabs: TabDescriptor[];
+}
+
+export type PluginToHostMessage = PluginReadyMessage | PluginRequestMessage | PluginTabsMessage;
+export type HostToPluginMessage = PluginInitMessage | PluginResponseMessage | PluginGetTabsMessage;

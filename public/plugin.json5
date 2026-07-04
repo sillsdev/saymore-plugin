@@ -9,14 +9,16 @@
 
   permissions: ["companionFiles"],
 
-  tabs: [
-    {
-      id: "segmenter",
-      label: { en: "Audio" },
-      entry: "index.html", // loaded into the tab's iframe
-      match: { lametaTypes: ["Audio"] },
-      // Leave the built-in viewer as the default tab for now.
-      claimDefault: false,
-    },
-  ],
+  // Tab-provider model (host ASKS the plugin): on every selection the host loads this entry
+  // as a hidden provider and calls getTabs; the SPA (src/plugin/tabProvider.ts) answers LIVE
+  // and UNCACHED from the current companion state:
+  //   - Audio with no <media>.annotations.eaf → one "SayMore: Start Annotating" tab (button)
+  //   - Audio that already has an .eaf         → NO tab (edit via the .eaf's own tab)
+  //   - a selected .eaf                        → one "Segments" tab (the manual segmenter)
+  // When a returned tab is opened, the same entry loads as a content tab and self-renders.
+  // `handles` is a coarse capability hint so the host only queries us for relevant files.
+  tabProvider: {
+    entry: "index.html",
+    handles: { lametaTypes: ["Audio"], extensions: ["eaf"] },
+  },
 }

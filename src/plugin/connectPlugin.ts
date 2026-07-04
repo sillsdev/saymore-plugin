@@ -1,5 +1,6 @@
 import type { FileSystemAdapter } from "../fs/FileSystemAdapter";
-import { connectToLameta } from "./lametaPluginClient";
+import { deriveMediaFromEaf } from "../fs/SessionFolder";
+import type { PluginHostApiV1, PluginInitContext } from "./PluginApiTypes";
 import { PluginHostAdapter } from "./PluginHostAdapter";
 
 /**
@@ -19,23 +20,44 @@ export function isEmbeddedInHost(): boolean {
 
 export interface PluginConnection {
   adapter: FileSystemAdapter;
-  mediaFileName: string;
+  /** The raw host API, for calls the adapter doesn't cover (e.g. selectFile). */
+  api: PluginHostApiV1;
+  /** The selected file's name — may be the media (State A) or a `.eaf` (State B). */
+  selectedFileName: string;
+  /** Lowercase extension without the dot, e.g. "wav" or "eaf". */
+  extension: string;
+  /** lameta's file-type classification, e.g. "Audio". */
+  lametaType: string;
   /** lameta's UI language code, for a future l10n hookup. */
   languageCode: string;
 }
 
 /**
- * Perform the `lameta:ready`/`lameta:init` handshake and wrap the granted host API
- * in a {@link PluginHostAdapter}. The caller feeds the adapter to
- * `ProjectStore.openSession`, exactly as the dev harness does with a
- * BrowserDirectoryAdapter.
+ * Wrap a resolved `lameta:init` context + host API in a {@link PluginConnection} for a
+ * **content tab** (role "tab"). The caller (the shell) does the `connectToLameta()`
+ * handshake once, branches on `context.role`, and — for a tab — calls this to get an
+ * adapter it feeds to `ProjectStore.openSession`, exactly as the dev harness does with a
+ * BrowserDirectoryAdapter. (The hidden "tabProvider" instance never calls this; it has no
+ * `file` and just answers `getTabs`.)
  */
-export async function connectPluginAdapter(): Promise<PluginConnection> {
-  const { context, api } = await connectToLameta();
-  const adapter = new PluginHostAdapter(api, context.file.name);
+export function buildPluginConnection(
+  context: PluginInitContext,
+  api: PluginHostApiV1,
+): PluginConnection {
+  const selectedFileName = context.file.name;
+  const extension = context.file.extension.toLowerCase();
+  // State B: an `.eaf` is selected — anchor the session on the media it annotates and
+  // read the media (+ its `_Annotations/`) through the host's eaf-scoped companions.
+  // State A: the media itself is selected — the adapter reads it via getFileBytes().
+  const mediaFileName =
+    extension === "eaf" ? deriveMediaFromEaf(selectedFileName) : selectedFileName;
+  const adapter = new PluginHostAdapter(api, mediaFileName, selectedFileName);
   return {
     adapter,
-    mediaFileName: context.file.name,
+    api,
+    selectedFileName,
+    extension,
+    lametaType: context.file.lametaType,
     languageCode: context.ui.languageCode,
   };
 }

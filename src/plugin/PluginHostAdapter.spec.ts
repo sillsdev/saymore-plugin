@@ -26,6 +26,7 @@ function makeFakeHost(opts: {
     readSidecar: async () => null,
     writeSidecar: async () => {},
     listSidecars: async () => [],
+    selectFile: async () => {},
     companions: {
       list: async (subdir?: string) => {
         const entries: { name: string; size: number; mtimeMs: number }[] = [];
@@ -120,6 +121,30 @@ describe("PluginHostAdapter", () => {
     expect(store.has("ETR009.mp3.annotations.eaf")).toBe(true);
   });
 
+  // State B: lameta selected the `.eaf` itself. The adapter is anchored on the media it
+  // annotates, decodes the selected `.eaf` via getFileBytes, and reaches the media and its
+  // `_Annotations/` through the host's eaf-scoped companions.
+  it("eaf-selected: reads the eaf via getFileBytes and media/_Annotations via companions", async () => {
+    const EAF = "ETR009.mp3.annotations.eaf";
+    const enc = new TextEncoder();
+    const { api, getFileBytes } = makeFakeHost({
+      selectedBytes: enc.encode("<eaf>hi</eaf>"), // the SELECTED file is the eaf
+      companions: {
+        "ETR009.mp3": new Uint8Array([1, 2, 3]), // media, readable under eaf-scoped companions
+        "ETR009.mp3_Annotations/0.75_to_1.25_Careful.wav": new Uint8Array([9]),
+      },
+    });
+    const fs = new PluginHostAdapter(api, MEDIA, EAF);
+
+    expect(await fs.readText(EAF)).toBe("<eaf>hi</eaf>");
+    expect(getFileBytes).toHaveBeenCalled();
+    expect([...(await fs.readBytes(MEDIA))]).toEqual([1, 2, 3]);
+    const listed = await fs.list();
+    expect(listed).toContain("ETR009.mp3");
+    expect(listed).toContain("ETR009.mp3_Annotations/0.75_to_1.25_Careful.wav");
+    await expect(fs.readText(MEDIA)).rejects.toThrow(/refusing/);
+  });
+
   it("renames and deletes segment WAVs (real host rename)", async () => {
     const { api } = makeFakeHost({
       selectedBytes: new Uint8Array(),
@@ -148,14 +173,7 @@ describe("PluginHostAdapter", () => {
     expect(await fs.getModifiedMs(MEDIA)).toBeUndefined();
   });
 
-  it("throws early on an out-of-scope path instead of calling the host", async () => {
-    const { api } = makeFakeHost({ selectedBytes: new Uint8Array() });
-    const spy = vi.spyOn(api.companions, "writeText");
-    const fs = new PluginHostAdapter(api, MEDIA);
-    await expect(fs.writeText("../evil.eaf", "x")).rejects.toThrow(/not an allowed companion/);
-    await expect(fs.delete("Other.mp3.annotations.eaf")).rejects.toThrow(
-      /not an allowed companion/,
-    );
-    expect(spy).not.toHaveBeenCalled();
-  });
+  // Scoping/validation is the host's responsibility (single source of truth); the adapter
+  // is a thin passthrough, so out-of-scope paths surface the host's rejection rather than a
+  // client-side early throw. Hence no client-allowlist test here.
 });

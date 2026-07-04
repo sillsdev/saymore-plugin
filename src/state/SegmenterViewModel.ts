@@ -140,6 +140,23 @@ export class SegmenterViewModel {
     this.selectedBoundaryIndex = NONE;
   }
 
+  /**
+   * Keyboard boundary selection (Tab / Shift+Tab): cycle the selected boundary
+   * through the segment-end boundaries, wrapping. Lets the segmenter be driven
+   * entirely from the keyboard (accessibility + headless testing) without having
+   * to pixel-target the boundary line. `delta` is +1 (next) or -1 (previous).
+   */
+  cycleSelectedBoundary(delta: number): void {
+    const n = this.segments.length;
+    if (n === 0) return;
+    const cur = this.selectedBoundaryIndex;
+    if (cur < 0) {
+      this.selectedBoundaryIndex = delta < 0 ? n - 1 : 0;
+    } else {
+      this.selectedBoundaryIndex = (((cur + delta) % n) + n) % n;
+    }
+  }
+
   setHoveredSegment(index: number): void {
     this.hoveredSegmentIndex = index;
   }

@@ -1,57 +1,81 @@
 import type { FileSystemAdapter } from "../fs/FileSystemAdapter";
 import type { PluginHostApiV1 } from "./PluginApiTypes";
-import { computeCompanionAllowlist, type CompanionAllowlist } from "./companionAllowlist";
+import { ANNOTATIONS_FOLDER_SUFFIX, STANDARD_AUDIO_SUFFIX } from "../model/SayMoreConstants";
+
+function normalize(name: string): string {
+  return name.replace(/\\/g, "/").toLowerCase();
+}
+
+function stripExtension(name: string): string {
+  const dot = name.lastIndexOf(".");
+  const slash = Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\"));
+  return dot > slash ? name.slice(0, dot) : name;
+}
 
 /**
- * The plugin-mode {@link FileSystemAdapter}: the seam between the annotation tools
- * and lameta's host, backed by the postMessage `api.companions.*` methods plus
- * `getFileBytes()` for the selected media file itself.
+ * The plugin-mode {@link FileSystemAdapter}: a thin passthrough over lameta's postMessage
+ * host API — `getFileBytes()` for the file lameta selected, `companions.*` for everything
+ * beside it.
  *
- * The tools were written against a "session folder" model (`list()` returns every
- * file, {@link SessionFolder} then picks the media). We reproduce that shape here
- * without any change to the tools:
+ * The **host is the single source of truth** for which companion paths are in scope (its
+ * generic stem-based allowlist). This adapter does no client-side allowlist validation; an
+ * out-of-scope path simply surfaces the host's rejection. It only needs the selected file's
+ * name (to route reads to `getFileBytes()`) and the media name (the session anchor, and to
+ * name the `_Annotations` folders it enumerates).
  *
- *  - `list()` returns the selected file, every existing top-level companion, and
- *    the `.wav`s inside the `_Annotations` folders — so `findMediaFile` still
- *    prefers a `_StandardAudio.wav` when present, matching SayMore.
- *  - Reads of the selected file route to `getFileBytes()`; the media is not a
- *    companion. Everything else routes to `companions.*` after a client-side
- *    allowlist check that throws early on an out-of-scope path.
- *
- * There is no `watch`; callers fall back to polling `getModifiedMs` (which maps to
- * `companions.stat`).
+ * Two selection states (see connectPlugin):
+ *  - State A — the media is selected: reads of the media go to `getFileBytes()`; the eaf and
+ *    the `_Annotations/` WAVs go through `companions.*`.
+ *  - State B — a `.eaf` is selected: `getFileBytes()` returns the eaf (decoded as text for
+ *    `readText`); the media and its `_Annotations/` are read through `companions.*`.
  */
 export class PluginHostAdapter implements FileSystemAdapter {
-  private readonly allowlist: CompanionAllowlist;
+  private readonly mediaLower: string;
   private readonly selectedLower: string;
 
+  /**
+   * @param mediaFileName        the session's media file — the anchor {@link SessionFolder}
+   *                             treats as the media and the base of the `_Annotations` folders.
+   * @param hostSelectedFileName the file lameta actually selected (what `getFileBytes()`
+   *                             returns). Defaults to the media (State A); a `.eaf` in State B.
+   */
   constructor(
     private readonly api: PluginHostApiV1,
-    private readonly selectedFileName: string,
+    private readonly mediaFileName: string,
+    hostSelectedFileName: string = mediaFileName,
   ) {
-    this.allowlist = computeCompanionAllowlist(selectedFileName);
-    this.selectedLower = selectedFileName.replace(/\\/g, "/").toLowerCase();
+    this.mediaLower = normalize(mediaFileName);
+    this.selectedLower = normalize(hostSelectedFileName);
   }
 
   private isSelected(name: string): boolean {
-    return name.replace(/\\/g, "/").toLowerCase() === this.selectedLower;
+    return normalize(name) === this.selectedLower;
   }
 
-  private assertAllowed(name: string): void {
-    if (!this.allowlist.isAllowed(name)) {
-      throw new Error(
-        `PluginHostAdapter: "${name}" is not an allowed companion of "${this.selectedFileName}".`,
-      );
+  private isMediaFile(name: string): boolean {
+    return normalize(name) === this.mediaLower;
+  }
+
+  /** The oral-annotation folders to enumerate: the media's, and its `_StandardAudio` sibling's. */
+  private annotationDirs(): string[] {
+    const dirs = [`${this.mediaFileName}${ANNOTATIONS_FOLDER_SUFFIX}`];
+    const standard = `${stripExtension(this.mediaFileName)}${STANDARD_AUDIO_SUFFIX}`;
+    if (normalize(standard) !== this.mediaLower) {
+      dirs.push(`${standard}${ANNOTATIONS_FOLDER_SUFFIX}`);
     }
+    return dirs;
   }
 
   async list(): Promise<string[]> {
     const names = new Set<string>();
-    names.add(this.selectedFileName);
+    // Surface the media so SessionFolder.findMediaFile picks it up in either state.
+    names.add(this.mediaFileName);
     for (const entry of await this.api.companions.list()) names.add(entry.name);
-    for (const dir of this.allowlist.annotationDirs) {
-      for (const entry of await this.api.companions.list(dir)) {
-        names.add(`${dir}/${entry.name}`);
+    for (const dir of this.annotationDirs()) {
+      try {
+        for (const entry of await this.api.companions.list(dir)) names.add(`${dir}/${entry.name}`);
+      } catch {
+        // Folder absent or out of scope — skip.
       }
     }
     return [...names].sort();
@@ -59,52 +83,50 @@ export class PluginHostAdapter implements FileSystemAdapter {
 
   async exists(name: string): Promise<boolean> {
     if (this.isSelected(name)) return true;
-    this.assertAllowed(name);
     return this.api.companions.exists(name);
   }
 
   async readBytes(name: string): Promise<Uint8Array> {
     if (this.isSelected(name)) return new Uint8Array(await this.api.getFileBytes());
-    this.assertAllowed(name);
     return new Uint8Array(await this.api.companions.readBytes(name));
   }
 
   async readText(name: string): Promise<string> {
-    if (this.isSelected(name)) {
+    // The media file is binary; never decode it as text.
+    if (this.isMediaFile(name)) {
       throw new Error("PluginHostAdapter: refusing to read the media file as text.");
     }
-    this.assertAllowed(name);
+    // State B: the selected file is the `.eaf` itself — decode the bytes lameta handed us.
+    if (this.isSelected(name)) return new TextDecoder().decode(await this.api.getFileBytes());
     return this.api.companions.readText(name);
   }
 
   async writeBytes(name: string, data: Uint8Array): Promise<void> {
-    this.assertAllowed(name);
     await this.api.companions.writeBytes(name, toArrayBuffer(data));
   }
 
   async writeText(name: string, text: string): Promise<void> {
-    this.assertAllowed(name);
     await this.api.companions.writeText(name, text);
   }
 
   async rename(from: string, to: string): Promise<void> {
-    this.assertAllowed(from);
-    this.assertAllowed(to);
     await this.api.companions.rename(from, to);
   }
 
   async delete(name: string): Promise<void> {
-    this.assertAllowed(name);
     await this.api.companions.delete(name);
   }
 
   async getModifiedMs(name: string): Promise<number | undefined> {
-    // The selected file isn't a companion, so it can't be stat'd here; the
-    // external-change poll only watches the .eaf (a companion) anyway.
-    if (this.isSelected(name)) return undefined;
-    this.assertAllowed(name);
-    const stat = await this.api.companions.stat(name);
-    return stat ? stat.mtimeMs : undefined;
+    // The selected media file (State A) isn't a companion and can't be stat'd; everything
+    // else (notably the .eaf the external-change poll watches) goes through companions.stat.
+    if (this.isMediaFile(name) && this.isSelected(name)) return undefined;
+    try {
+      const stat = await this.api.companions.stat(name);
+      return stat ? stat.mtimeMs : undefined;
+    } catch {
+      return undefined;
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 import { makeAutoObservable } from "mobx";
 import type { FileOp } from "../fs/OralAnnotationFiles";
+import type { TimeRange } from "../model/TimeRange";
 
 /**
  * `FileOp` (rename/delete of an oral-annotation WAV) is journaled by boundary
@@ -17,6 +18,8 @@ export interface Command {
   apply(): void;
   revert(): void;
   fileOps?: FileOp[];
+  /** The media time range this change acted on (recorder: C# TimeRangeForUndo). */
+  timeRange?: TimeRange;
 }
 
 /**
@@ -46,6 +49,11 @@ export class UndoStack {
 
   get undoLabel(): string | undefined {
     return this.undoStack[this.undoStack.length - 1]?.label;
+  }
+
+  /** The time range of the next command to be undone, if it carries one. */
+  get undoTimeRange(): TimeRange | undefined {
+    return this.undoStack[this.undoStack.length - 1]?.timeRange;
   }
 
   /** Run and record a command. Clears the redo stack. */

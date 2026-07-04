@@ -316,6 +316,44 @@ describe("RecorderViewModel — per-cell playback / erase / re-record", () => {
   });
 });
 
+describe("RecorderViewModel — ignore + undo metadata", () => {
+  it("toggleIgnore marks a segment ignored and skips it; undo restores", async () => {
+    const { vm } = await makeVm();
+    expect(vm.currentIndex).toBe(0);
+    vm.toggleIgnore(0);
+    expect(vm.cells[0].ignored).toBe(true);
+    expect(vm.currentIndex).toBe(1); // ignored 0 is skipped
+    vm.undo();
+    expect(vm.cells[0].ignored).toBe(false);
+    expect(vm.currentIndex).toBe(0);
+  });
+
+  it("un-ignoring makes a segment needed again (earliest becomes current)", async () => {
+    const { vm } = await makeVm({ ignored: [0] });
+    expect(vm.currentIndex).toBe(1);
+    vm.toggleIgnore(0);
+    expect(vm.cells[0].ignored).toBe(false);
+    expect(vm.currentIndex).toBe(0);
+  });
+
+  it("undoDescription and timeRangeForUndo reflect the last change", async () => {
+    const { vm, playback, recorder } = await makeVm();
+    expect(vm.undoDescription).toBeUndefined();
+    expect(vm.timeRangeForUndo).toBeUndefined();
+
+    listenToCompletion(vm, playback);
+    recorder.setNextRecording(samplesOfMs(700));
+    vm.speakDown();
+    await vm.speakUp();
+    expect(vm.undoDescription).toBe("Record annotation");
+    expect(vm.timeRangeForUndo).toEqual({ start: 0, end: 1 });
+
+    vm.toggleIgnore(2);
+    expect(vm.undoDescription).toBe("Toggle ignore");
+    expect(vm.timeRangeForUndo).toEqual({ start: 2, end: 3 });
+  });
+});
+
 describe("RecorderViewModel — error / recovery", () => {
   let vm: RecorderViewModel;
   let recorder: SpyRecorder;

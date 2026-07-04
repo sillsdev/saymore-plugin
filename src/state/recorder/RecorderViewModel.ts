@@ -359,13 +359,34 @@ export class RecorderViewModel {
     const mutation = this.store.eraseRecording(seg.range, this.kind);
     this.undoStack.do({
       label: t("recorder.cmd.erase", "Erase annotation"),
+      timeRange: seg.range,
       apply: () => mutation.apply(),
       revert: () => mutation.revert(),
     });
-    this.hasListenedToCurrent = false;
-    this.currentIndex = "new";
-    this.setNextCurrent();
-    this.mode = this.isFullyAnnotated ? "Done" : "Listen";
+    this.reselectFromStart();
+  }
+
+  /**
+   * Toggle a segment's `%ignore%` state (undoable). Ignored segments are skipped
+   * by the recorder. Mirrors SayMore SegmenterDlgBase.HandleIgnoreButtonClick /
+   * the recorder's HandleSegmentIgnored (re-derives the current segment after).
+   */
+  toggleIgnore(i: number): void {
+    const seg = this.segments[i];
+    if (!seg) return;
+    const range = seg.range;
+    const before = this.document.tiers.snapshot();
+    this.document.tiers.setIgnored(i, !this.document.tiers.isSegmentIgnored(i));
+    const after = this.document.tiers.snapshot();
+    this.undoStack.do({
+      label: t("recorder.cmd.ignore", "Toggle ignore"),
+      timeRange: range,
+      apply: () => this.document.tiers.replaceAll(after),
+      revert: () => this.document.tiers.replaceAll(before),
+    });
+    this.document.bumpVersion();
+    this.reselectFromStart();
+    this.scheduleAutoSave();
   }
 
   /** Press-and-hold re-record on a specific cell. The old clip is the backup. */
@@ -443,15 +464,32 @@ export class RecorderViewModel {
     return this.undoStack.canRedo;
   }
 
+  /** Label of the next undoable change (SayMore DescriptionForUndo); UI tooltip. */
+  get undoDescription(): string | undefined {
+    return this.undoStack.undoLabel;
+  }
+
+  /** Time range of the next undoable change (SayMore TimeRangeForUndo). */
+  get timeRangeForUndo(): TimeRange | undefined {
+    return this.undoStack.undoTimeRange;
+  }
+
   private afterUndoRedo(): void {
     this.document.bumpVersion();
+    this.reselectFromStart();
+    this.scheduleAutoSave();
+  }
+
+  /**
+   * Re-derive the current segment from the start. Used after undo/redo, erase and
+   * ignore-toggle: restoring/removing an earlier clip or (un)ignoring a segment
+   * makes the earliest still-needed segment current again (not the next one).
+   */
+  private reselectFromStart(): void {
     this.hasListenedToCurrent = false;
-    // Re-scan from the start: undo restoring an earlier clip makes that segment
-    // current again (SayMore RestorePreviousVersionOfAnnotation), not the next one.
     this.currentIndex = "new";
     this.setNextCurrent();
     this.mode = this.isFullyAnnotated ? "Done" : "Listen";
-    this.scheduleAutoSave();
   }
 
   dispose(): void {
@@ -509,6 +547,7 @@ export class RecorderViewModel {
     const mutation = this.store.writeRecording(range, this.kind, bytes);
     this.undoStack.do({
       label: t("recorder.cmd.record", "Record annotation"),
+      timeRange: range,
       apply: () => mutation.apply(),
       revert: () => mutation.revert(),
     });
@@ -531,6 +570,7 @@ export class RecorderViewModel {
     const mutation = this.store.writeRecording(range, this.kind, bytes);
     this.undoStack.do({
       label: t("recorder.cmd.recordNew", "Record new segment"),
+      timeRange: range,
       apply: () => {
         this.document.tiers.replaceAll(after);
         mutation.apply();

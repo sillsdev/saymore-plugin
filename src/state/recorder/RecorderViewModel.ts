@@ -1,6 +1,6 @@
 import { makeAutoObservable, runInAction } from "mobx";
 import { MediaElementPlaybackEngine, type PlaybackEngine } from "../../audio/PlaybackEngine";
-import type { RecorderService } from "../../audio/recording/Recorder";
+import type { RecorderService, RecordingDeviceInfo } from "../../audio/recording/Recorder";
 import { encodeWavPcm16Mono } from "../../audio/wavWriter";
 import { decodeWav } from "../../audio/wavCodec";
 import type { FileSystemAdapter } from "../../fs/FileSystemAdapter";
@@ -86,6 +86,8 @@ export class RecorderViewModel {
   hasListenedToCurrent = false;
   isListening = false;
   isRecording = false;
+  /** Selectable capture devices (refreshed on open / recovery). */
+  availableDevices: RecordingDeviceInfo[] = [];
   /** Transient message (too-short warning etc.). */
   warning: string | undefined = undefined;
 
@@ -153,7 +155,35 @@ export class RecorderViewModel {
       await this.recorder.open();
     } catch {
       runInAction(() => this.enterErrorMode());
+      return;
     }
+    await this.refreshDevices();
+  }
+
+  /** Switch the capture device (SayMore RecordingDeviceIndicator). No-op if unsupported. */
+  async setDevice(id: string): Promise<void> {
+    if (!this.recorder.setDevice) return;
+    try {
+      await this.recorder.setDevice(id);
+    } catch {
+      runInAction(() => this.enterErrorMode());
+      return;
+    }
+    await this.refreshDevices();
+  }
+
+  /** Re-enumerate selectable devices (on open, device switch, and recovery). */
+  private async refreshDevices(): Promise<void> {
+    if (!this.recorder.listDevices) return;
+    let devices: RecordingDeviceInfo[];
+    try {
+      devices = await this.recorder.listDevices();
+    } catch {
+      return;
+    }
+    runInAction(() => {
+      this.availableDevices = devices;
+    });
   }
 
   /** Position the recorder on the first segment needing work (SayMore OnShown). */
@@ -631,6 +661,7 @@ export class RecorderViewModel {
           ? "Record"
           : "Listen";
     });
+    void this.refreshDevices();
   }
 
   private startDeviceCheck(): void {

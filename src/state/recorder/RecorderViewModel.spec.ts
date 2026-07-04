@@ -402,6 +402,24 @@ describe("RecorderViewModel — error / recovery", () => {
   });
 });
 
+describe("RecorderViewModel — device indicator", () => {
+  it("populates availableDevices when the device opens", async () => {
+    const { vm } = await makeVm();
+    expect(vm.availableDevices).toHaveLength(0);
+    await vm.openDevice();
+    expect(vm.availableDevices.map((d) => d.label)).toEqual(["Spy Microphone", "USB Mic"]);
+  });
+
+  it("setDevice switches the capture device and updates the label", async () => {
+    const { vm, recorder } = await makeVm();
+    await vm.openDevice();
+    await vm.setDevice("usb");
+    expect(recorder.calls).toContain("setDevice:usb");
+    expect(recorder.currentDeviceId).toBe("usb");
+    expect(vm.deviceLabel).toBe("USB Mic");
+  });
+});
+
 describe("RecorderViewModel — done mode", () => {
   it("is Done when every segment is annotated and fully segmented", async () => {
     // Media exactly 3s so [0,3] is fully segmented once all three are recorded.

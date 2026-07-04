@@ -11,6 +11,14 @@ import { makeAutoObservable } from "mobx";
  * `MicRecorder` confines all such access to method bodies.
  */
 
+/** A selectable capture device (mirrors SayMore's RecordingDeviceIndicator list). */
+export interface RecordingDeviceInfo {
+  /** Stable device id (MediaDeviceInfo.deviceId); "" for the system default. */
+  id: string;
+  /** Human-readable device name. */
+  label: string;
+}
+
 /** The result of one push-to-talk take, at the device's native sample rate. */
 export interface RecordingResult {
   /** Mono capture, Float32 in [-1, 1]. */
@@ -43,6 +51,14 @@ export interface RecorderService {
   abortRecording(): void;
   /** Subscribe to device errors (unplug etc.). Returns an unsubscribe fn. */
   onError(cb: (e: Error) => void): () => void;
+  /**
+   * Enumerate selectable capture devices (SayMore RecordingDeviceIndicator).
+   * Optional so implementations can adopt it incrementally (B: MicRecorder);
+   * the VM treats absence as "no device switching available".
+   */
+  listDevices?(): Promise<RecordingDeviceInfo[]>;
+  /** Switch capture to `id`, reopening the hot mic; updates {@link deviceLabel}. */
+  setDevice?(id: string): Promise<void>;
   /** Release the mic + worklet. */
   close(): void;
 }
@@ -66,6 +82,14 @@ export class SpyRecorder implements RecorderService {
   nextDurationMs: number | undefined = undefined;
   /** When true, the next {@link open} rejects (simulates an unavailable device). */
   failOpen = false;
+
+  /** Scriptable device list returned by {@link listDevices}. */
+  devices: RecordingDeviceInfo[] = [
+    { id: "", label: "Spy Microphone" },
+    { id: "usb", label: "USB Mic" },
+  ];
+  /** Currently selected device id. */
+  currentDeviceId = "";
 
   /** Ordered log of method invocations, for assertions. */
   readonly calls: string[] = [];
@@ -115,6 +139,20 @@ export class SpyRecorder implements RecorderService {
     return () => {
       this.errorCbs.delete(cb);
     };
+  }
+
+  async listDevices(): Promise<RecordingDeviceInfo[]> {
+    this.calls.push("listDevices");
+    return this.devices;
+  }
+
+  async setDevice(id: string): Promise<void> {
+    this.calls.push(`setDevice:${id}`);
+    this.currentDeviceId = id;
+    const device = this.devices.find((d) => d.id === id);
+    if (device) this.deviceLabel = device.label;
+    // Reopening the hot mic keeps us "open" (unless the device is gone).
+    if (this.state !== "error") this.state = "open";
   }
 
   close(): void {

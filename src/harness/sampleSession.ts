@@ -1,5 +1,5 @@
 import type { IndexedDbAdapter } from "./IndexedDbAdapter";
-import sampleAudioUrl from "../../test-data/media/longerSound.wav?url";
+import sampleAudioUrl from "../../test-data/media/ETR009_Tiny.mp3?url";
 
 /**
  * The bundled sample session the host simulator defaults to: just the real
@@ -11,7 +11,7 @@ import sampleAudioUrl from "../../test-data/media/longerSound.wav?url";
  * The media file name doubles as the session identity; keep it in sync with the
  * asset above.
  */
-export const SAMPLE_MEDIA_NAME = "longerSound.wav";
+export const SAMPLE_MEDIA_NAME = "ETR009_Tiny.mp3";
 
 const SAMPLE_FILES: ReadonlyArray<{ name: string; url: string }> = [
   { name: SAMPLE_MEDIA_NAME, url: sampleAudioUrl },
@@ -36,8 +36,12 @@ export async function resetSampleSession(adapter: IndexedDbAdapter): Promise<voi
   await seedSampleSession(adapter);
 }
 
-/** Seed only if the store is empty (first ever load); otherwise keep prior edits. */
+/**
+ * Seed on first load, and re-seed if the persisted session predates a change to
+ * the bundled sample (its media file is gone) — so switching the sample asset
+ * doesn't leave a stale file behind. Otherwise keep prior edits.
+ */
 export async function ensureSampleSeeded(adapter: IndexedDbAdapter): Promise<void> {
   const existing = await adapter.list();
-  if (existing.length === 0) await seedSampleSession(adapter);
+  if (!existing.includes(SAMPLE_MEDIA_NAME)) await resetSampleSession(adapter);
 }

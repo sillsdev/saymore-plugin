@@ -161,7 +161,7 @@ export function decodeWav(bytes: Uint8Array): DecodedWav {
   }
   for (let frame = 0; frame < numFrames; frame++) {
     for (let c = 0; c < format.numChannels; c++) {
-      const offset = dataOffset + (frame * format.numChannels + c) * bytesPerSample;
+      const offset = dataOffset + frame * frameBytes + c * bytesPerSample;
       channels[c][frame] = readSample(offset);
     }
   }

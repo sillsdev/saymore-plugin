@@ -100,6 +100,72 @@ describe("decodeWav", () => {
     expect(decoded.channels[0][1]).toBeCloseTo(-100 / 32768, 6);
   });
 
+  it("respects a padded blockAlign wider than numChannels*bytesPerSample", () => {
+    // Mono 16-bit but blockAlign=4 (2 bytes of padding after each sample) —
+    // frame addressing must stride by frameBytes, not numChannels*bytesPerSample.
+    const bytes = new Uint8Array([
+      0x52,
+      0x49,
+      0x46,
+      0x46,
+      0,
+      0,
+      0,
+      0,
+      0x57,
+      0x41,
+      0x56,
+      0x45,
+      0x66,
+      0x6d,
+      0x74,
+      0x20,
+      16,
+      0,
+      0,
+      0,
+      1,
+      0, // PCM
+      1,
+      0, // mono
+      0x40,
+      0x1f,
+      0,
+      0, // 8000 Hz
+      0,
+      0,
+      0,
+      0, // byte rate (unused by decodeWav)
+      4,
+      0, // block align: padded to 4 bytes/frame
+      16,
+      0, // bits per sample
+      0x64,
+      0x61,
+      0x74,
+      0x61,
+      8,
+      0,
+      0,
+      0,
+      100,
+      0,
+      0xaa,
+      0xaa, // frame 0: sample=100, 2 pad bytes
+      156,
+      255,
+      0xaa,
+      0xaa, // frame 1: sample=-100, 2 pad bytes
+    ]);
+    const view = new DataView(bytes.buffer);
+    view.setUint32(4, bytes.length - 8, true);
+
+    const decoded = decodeWav(bytes);
+    expect(decoded.channels[0].length).toBe(2);
+    expect(decoded.channels[0][0]).toBeCloseTo(100 / 32768, 6);
+    expect(decoded.channels[0][1]).toBeCloseTo(-100 / 32768, 6);
+  });
+
   it("throws on a non-WAV buffer", () => {
     expect(() => decodeWav(new Uint8Array([1, 2, 3, 4]))).toThrow();
   });

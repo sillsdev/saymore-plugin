@@ -9,6 +9,7 @@ import { MediaElementPlaybackEngine } from "../audio/PlaybackEngine";
 import { AnnotationDocumentStore } from "./AnnotationDocumentStore";
 import { SegmenterViewModel } from "./SegmenterViewModel";
 import { RecorderViewModel } from "./recorder/RecorderViewModel";
+import { RecordingFileStore } from "./recorder/RecordingFileStore";
 import type { RecorderKind } from "./recorder/recorderTypes";
 import { SpyRecorder } from "../audio/recording/Recorder";
 import { autoSegmentToEaf, buildAutoSegmentedEafXml } from "../audio/autoSegmentToEaf";
@@ -191,23 +192,31 @@ export class ProjectStore {
 
   /**
    * Open the Careful Speech / Oral Translation recorder over the current
-   * session. Builds a {@link RecorderViewModel} with its own
-   * MediaElementPlaybackEngine and the shared oralIndex/document. The real
-   * MicRecorder is wired in at the merge step; until then a {@link SpyRecorder}
-   * placeholder keeps the surface functional (and specs/CI running).
+   * session. Builds the RecordingFileStore (overlay pre-warmed from disk) and a
+   * {@link RecorderViewModel} with its own MediaElementPlaybackEngine and the
+   * shared oralIndex/document. The real MicRecorder is wired in at the merge
+   * step; until then a {@link SpyRecorder} placeholder keeps the surface
+   * functional (and specs/CI running). The view flips once the store is ready.
    */
   openRecorder(kind: RecorderKind): void {
     if (!this.document || !this.oralIndex) return;
     this.disposeRecorder();
+    void this.buildRecorder(kind);
+  }
+
+  private async buildRecorder(kind: RecorderKind): Promise<void> {
+    const document = this.document;
+    const oralIndex = this.oralIndex;
+    if (!document || !oralIndex) return;
+    const store = await RecordingFileStore.build(this.adapter, oralIndex, this.mediaFileName);
     const playback = new MediaElementPlaybackEngine(this.mediaUrl ?? "");
     const recorder = new RecorderViewModel({
       kind,
-      document: this.document,
+      document,
       playback,
       recorder: new SpyRecorder(),
-      oralIndex: this.oralIndex,
+      store,
       adapter: this.singleFileMode ? undefined : this.adapter,
-      mediaFileName: this.mediaFileName,
     });
     runInAction(() => {
       this.recorder = recorder;

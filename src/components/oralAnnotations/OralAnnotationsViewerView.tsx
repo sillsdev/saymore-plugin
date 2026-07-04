@@ -11,6 +11,7 @@ import { PIXELS_PER_SECOND_AT_100 } from "../../model/SayMoreConstants";
 import { LAMETA_DARK_BLUE, LAMETA_DARK_GREEN, LAMETA_UI_FONT } from "../../lametaTheme";
 import { PlaybackCursor } from "../waveform/PlaybackCursor";
 import { drawMiniWaveform } from "../recorder/miniWaveform";
+import { clipCursorXPx } from "../recorder/playbackCursor";
 import { StubButton } from "../shell/stub";
 import { downsampleChannels, splitOralAnnotationsChannels } from "./oralAnnotationsLayout";
 import { formatPosTotal } from "./timeReadout";
@@ -83,7 +84,11 @@ export const OralAnnotationsViewerView = observer(function OralAnnotationsViewer
     ? splitOralAnnotationsChannels(decoded.channels, sourceChannelCount)
     : undefined;
   const contentWidthPx = Math.max(1, Math.round(viewer.durationSec * PIXELS_PER_SECOND_AT_100));
-  const cursorX = viewer.durationSec > 0 ? (positionSec / viewer.durationSec) * contentWidthPx : 0;
+  // The cursor is a sibling of the label+canvas Rows inside one wrapper (see
+  // below), so its x is relative to that whole grid — offset past the label
+  // column so it anchors inside the waveform column (x=0 at the canvas'
+  // left edge), not over the row labels.
+  const cursorX = LABEL_WIDTH + clipCursorXPx(positionSec, viewer.durationSec, contentWidthPx);
 
   return (
     <div

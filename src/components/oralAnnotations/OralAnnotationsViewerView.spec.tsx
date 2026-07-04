@@ -86,6 +86,26 @@ describe("OralAnnotationsViewerView", () => {
     expect(screen.getByText(/Not generated yet/)).toBeTruthy();
   });
 
+  it("anchors the spanning cursor inside the waveform column (x=0 at canvas left), not over the row labels", () => {
+    vi.spyOn(wavCodec, "decodeWav").mockReturnValue({
+      channels: [new Float32Array(10), new Float32Array(10)],
+      sampleRate: 48000,
+    });
+    const store = fakeStore({
+      oralViewer: { bytes: new Uint8Array([1]), durationSec: 5, loading: false },
+    });
+    render(<OralAnnotationsViewerView store={store} />);
+
+    expect(screen.queryByTestId("oralann-cursor")).toBeNull(); // hidden while not playing
+
+    fireEvent.click(screen.getByTestId("oralann-play"));
+    const cursor = screen.getByTestId("oralann-cursor") as HTMLElement;
+    // At position 0 the cursor should sit exactly at the label column's width
+    // (the row label is 90px — see LABEL_WIDTH), i.e. the canvas' own left
+    // edge, not at 0 (which would be over the labels).
+    expect(cursor.style.left).toBe("90px");
+  });
+
   it("shows the error message when the viewer failed to load", () => {
     render(
       <OralAnnotationsViewerView

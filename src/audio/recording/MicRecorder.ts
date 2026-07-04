@@ -87,31 +87,38 @@ export class MicRecorder implements RecorderService {
   async open(): Promise<void> {
     if (this.state === "open" || this.state === "recording") return;
 
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    this.track = this.stream.getAudioTracks()[0] ?? null;
-    this.track?.addEventListener("ended", this.onTrackEnded);
-    navigator.mediaDevices.addEventListener("devicechange", this.onDeviceChange);
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.track = this.stream.getAudioTracks()[0] ?? null;
+      this.track?.addEventListener("ended", this.onTrackEnded);
+      navigator.mediaDevices.addEventListener("devicechange", this.onDeviceChange);
 
-    const AudioContextCtor = getAudioContextCtor();
-    if (!AudioContextCtor) {
-      throw new Error("MicRecorder.open requires a browser AudioContext.");
+      const AudioContextCtor = getAudioContextCtor();
+      if (!AudioContextCtor) {
+        throw new Error("MicRecorder.open requires a browser AudioContext.");
+      }
+      this.audioContext = new AudioContextCtor();
+      await this.audioContext.audioWorklet.addModule(
+        new URL("./recorderWorklet.js", import.meta.url),
+      );
+      this.workletNode = new AudioWorkletNode(this.audioContext, RECORDER_WORKLET_NAME);
+      this.workletNode.port.onmessage = (event: MessageEvent<RecorderWorkletMessage>) => {
+        this.handleWorkletMessage(event.data);
+      };
+      this.sourceNode = this.audioContext.createMediaStreamSource(this.stream);
+      // Feeds the worklet only — never connected to destination (no monitoring echo).
+      this.sourceNode.connect(this.workletNode);
+
+      runInAction(() => {
+        this.deviceLabel = this.track?.label || undefined;
+        this.state = "open";
+      });
+    } catch (e) {
+      // Release whatever was acquired before the failure (stream, listeners,
+      // audio context) so a retried open() doesn't pile up leaked resources.
+      this.close();
+      throw e;
     }
-    this.audioContext = new AudioContextCtor();
-    await this.audioContext.audioWorklet.addModule(
-      new URL("./recorderWorklet.js", import.meta.url),
-    );
-    this.workletNode = new AudioWorkletNode(this.audioContext, RECORDER_WORKLET_NAME);
-    this.workletNode.port.onmessage = (event: MessageEvent<RecorderWorkletMessage>) => {
-      this.handleWorkletMessage(event.data);
-    };
-    this.sourceNode = this.audioContext.createMediaStreamSource(this.stream);
-    // Feeds the worklet only — never connected to destination (no monitoring echo).
-    this.sourceNode.connect(this.workletNode);
-
-    runInAction(() => {
-      this.deviceLabel = this.track?.label || undefined;
-      this.state = "open";
-    });
   }
 
   private handleWorkletMessage(message: RecorderWorkletMessage): void {

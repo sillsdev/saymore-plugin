@@ -6,9 +6,10 @@ import { App } from "./App";
 // happy-dom spec: proves the React 18 + Emotion css-prop + @testing-library
 // component-testing path works (this is how the segmenter/grid specs will run).
 describe("App shell", () => {
-  it("renders the OpenScreen until a session is loaded", () => {
+  it("renders the host simulator as the standalone root", () => {
     render(<App />);
-    expect(screen.getByText(/Manual Segmenter/)).toBeTruthy();
-    expect(screen.getByText(/Drop one audio file/)).toBeTruthy();
+    // The simulator header shows immediately, before the (async, IndexedDB-backed)
+    // session load resolves — so this holds even where IndexedDB is unavailable.
+    expect(screen.getByText(/host simulator/i)).toBeTruthy();
   });
 });

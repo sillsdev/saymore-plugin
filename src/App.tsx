@@ -18,6 +18,8 @@ import { annotationsEafName } from "./fs/SessionFolder";
 import { createEafFromTemplate, serializeEaf } from "./model/eaf/EafDocument";
 import { eafTemplateXml } from "./model/eaf/eafTemplate";
 import { autoSegmentToEaf } from "./audio/autoSegmentToEaf";
+import { HostSimulator } from "./harness/HostSimulator";
+import { wantsOpenScreen } from "./harness/harnessRouter";
 import { t } from "./l10n";
 
 /**
@@ -127,27 +129,48 @@ export const App = observer(function App() {
   // The hidden provider instance has no UI — it only answers getTabs.
   if (providerMode) return null;
 
+  // Embedded plugin path (unchanged): the segmenter, State A, or a connecting notice.
+  if (embedded) {
+    return (
+      <ErrorBoundary>
+        {store.segmenter ? (
+          <ManualSegmenterView store={store} />
+        ) : startMediaName ? (
+          <StartAnnotatingView
+            mediaFileName={startMediaName}
+            onStart={handleStartAnnotating}
+            onAutoSegment={handleAutoSegment}
+          />
+        ) : (
+          <PluginConnecting error={connectError ?? store.error} />
+        )}
+      </ErrorBoundary>
+    );
+  }
+
+  // Standalone: the host simulator is the root page. The legacy OpenScreen flow
+  // stays reachable at `?open` (drop/pick a single file → the same store views).
+  if (wantsOpenScreen()) {
+    return (
+      <ErrorBoundary>
+        {store.segmenter ? (
+          <ManualSegmenterView store={store} />
+        ) : store.startAnnotatingMedia ? (
+          <StartAnnotatingView
+            mediaFileName={store.startAnnotatingMedia}
+            onStart={() => store.startAnnotatingManual()}
+            onAutoSegment={(onProgress) => store.autoSegment(onProgress)}
+          />
+        ) : (
+          <OpenScreen store={store} />
+        )}
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
-      {store.segmenter ? (
-        <ManualSegmenterView store={store} />
-      ) : startMediaName ? (
-        <StartAnnotatingView
-          mediaFileName={startMediaName}
-          onStart={handleStartAnnotating}
-          onAutoSegment={handleAutoSegment}
-        />
-      ) : store.startAnnotatingMedia ? (
-        <StartAnnotatingView
-          mediaFileName={store.startAnnotatingMedia}
-          onStart={() => store.startAnnotatingManual()}
-          onAutoSegment={(onProgress) => store.autoSegment(onProgress)}
-        />
-      ) : embedded ? (
-        <PluginConnecting error={connectError ?? store.error} />
-      ) : (
-        <OpenScreen store={store} />
-      )}
+      <HostSimulator store={store} />
     </ErrorBoundary>
   );
 });

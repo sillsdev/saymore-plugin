@@ -12,3 +12,10 @@ export const LAMETA_MUTED = "#6b6b6b";
 export const LAMETA_BACKGROUND = "#ffffff";
 export const LAMETA_PANEL = "#f7f7f7";
 export const LAMETA_BORDER = "#cccccc";
+
+/** Waveform draw color for the segmenter. */
+export const LAMETA_WAVEFORM = "#3a7d2d";
+
+/** lameta's UI font stack (its `--default-fonts` custom property). */
+export const LAMETA_UI_FONT =
+  '"-apple-system", "BlinkMacSystemFont", "Segoe UI", "Ubuntu", "Open Sans", sans-serif';

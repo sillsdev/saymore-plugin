@@ -1,7 +1,10 @@
 /** @jsxImportSource @emotion/react */
 import { css } from "@emotion/react";
 import { useState } from "react";
+import Button from "@mui/material/Button";
+import LinearProgress from "@mui/material/LinearProgress";
 import { t } from "../../l10n";
+import { LAMETA_UI_FONT } from "../../lametaTheme";
 
 /**
  * State A of the plugin tab: an Audio file is selected but no `<media>.annotations.eaf`
@@ -39,19 +42,16 @@ export function StartAnnotatingView(props: {
     // On success the shell swaps this view out, so we intentionally leave `busy` set.
   }
 
-  const buttonCss = css`
-    display: block;
-    width: 100%;
-    padding: 10px 18px;
-    margin-top: 0.75rem;
-    font-size: 15px;
-    border-radius: 4px;
-    cursor: pointer;
-    &:disabled {
-      opacity: 0.6;
-      cursor: default;
-    }
-  `;
+  const buttonSx = {
+    display: "block",
+    width: "100%",
+    mt: "0.75rem",
+    py: "10px",
+    px: "18px",
+    fontSize: 15,
+    fontFamily: "inherit",
+    textTransform: "none",
+  } as const;
 
   return (
     <div
@@ -59,7 +59,7 @@ export function StartAnnotatingView(props: {
         max-width: 40rem;
         margin: 4rem auto;
         padding: 0 1rem;
-        font-family: system-ui, sans-serif;
+        font-family: ${LAMETA_UI_FONT};
         line-height: 1.5;
         text-align: center;
       `}
@@ -81,64 +81,54 @@ export function StartAnnotatingView(props: {
         </span>
       </p>
 
-      <button
-        type="button"
+      <Button
+        variant="contained"
+        disableElevation
         disabled={busy !== undefined}
         onClick={() => void run("auto", () => onAutoSegment(setProgress))}
-        css={css`
-          ${buttonCss};
-          border: 1px solid #2e7d32;
-          background: #2e7d32;
-          color: #fff;
-        `}
+        sx={{
+          ...buttonSx,
+          background: "#2e7d32",
+          "&:hover": { background: "#276b2a" },
+        }}
       >
         {busy === "auto"
           ? t("start.autoSegmenting", "Segmenting… {percent}%", {
               percent: Math.round(progress * 100),
             })
           : t("start.autoSegment", "Auto-segment")}
-      </button>
+      </Button>
 
       {busy === "auto" && (
-        <div
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(progress * 100)}
-          css={css`
-            margin-top: 0.5rem;
-            height: 6px;
-            border-radius: 3px;
-            background: #c8e6c9;
-            overflow: hidden;
-          `}
-        >
-          <div
-            css={css`
-              height: 100%;
-              width: ${Math.round(progress * 100)}%;
-              background: #2e7d32;
-              transition: width 0.15s linear;
-            `}
-          />
-        </div>
+        <LinearProgress
+          variant="determinate"
+          value={Math.round(progress * 100)}
+          sx={{
+            mt: "0.5rem",
+            height: 6,
+            borderRadius: "3px",
+            background: "#c8e6c9",
+            "& .MuiLinearProgress-bar": { background: "#2e7d32" },
+          }}
+        />
       )}
 
-      <button
-        type="button"
+      <Button
+        variant="outlined"
         disabled={busy !== undefined}
         onClick={() => void run("manual", onStart)}
-        css={css`
-          ${buttonCss};
-          border: 1px solid #90a4ae;
-          background: #fff;
-          color: #37474f;
-        `}
+        sx={{
+          ...buttonSx,
+          color: "#37474f",
+          borderColor: "#90a4ae",
+          background: "#fff",
+          "&:hover": { borderColor: "#607d8b", background: "#fff" },
+        }}
       >
         {busy === "manual"
           ? t("start.creating", "Creating annotation file…")
           : t("start.useManualSegmenter", "Use manual segmentation tool")}
-      </button>
+      </Button>
 
       {error && (
         <p

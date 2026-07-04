@@ -1,6 +1,5 @@
-/** @jsxImportSource @emotion/react */
-import { css } from "@emotion/react";
 import type { ReactNode } from "react";
+import Button from "@mui/material/Button";
 import { t } from "../l10n";
 
 /**
@@ -18,26 +17,33 @@ export function stubTitle(feature?: string): string {
 
 export function StubButton(props: { children: ReactNode; feature?: string; className?: string }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="outlined"
       disabled
       title={stubTitle(props.feature)}
       className={props.className}
-      css={css`
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        padding: 3px 8px;
-        font-size: 13px;
-        color: #37474f;
-        background: #f5f7f8;
-        border: 1px solid #cfd8dc;
-        border-radius: 3px;
-        cursor: not-allowed;
-        opacity: 0.65;
-      `}
+      sx={{
+        textTransform: "none",
+        fontFamily: "inherit",
+        fontSize: 13,
+        py: "3px",
+        px: "8px",
+        minWidth: 0,
+        gap: "4px",
+        color: "#37474f",
+        background: "#f5f7f8",
+        borderColor: "#cfd8dc",
+        // Keep the tooltip reachable on hover even though the action is inert.
+        "&.Mui-disabled": {
+          color: "#37474f",
+          opacity: 0.65,
+          background: "#f5f7f8",
+          pointerEvents: "auto",
+          cursor: "not-allowed",
+        },
+      }}
     >
       {props.children}
-    </button>
+    </Button>
   );
 }

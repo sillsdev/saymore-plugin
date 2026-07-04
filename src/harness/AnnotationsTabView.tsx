@@ -1,11 +1,15 @@
 /** @jsxImportSource @emotion/react */
 import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
+import Button from "@mui/material/Button";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
 import { t } from "../l10n";
 import type { HarnessStore } from "./HarnessStore";
 import { TranscriptionGrid } from "./TranscriptionGrid";
 import { ManualSegmenterView } from "../components/segmenter/ManualSegmenterView";
 import { StubButton, stubTitle } from "./stub";
+import { LAMETA_UI_FONT } from "../lametaTheme";
 
 /**
  * The "Annotations" tab a SayMore `.eaf` selection shows (reference screenshot 2):
@@ -52,6 +56,7 @@ const SegmentMode = observer(function SegmentMode(props: { harness: HarnessStore
     <div
       css={css`
         border: 1px solid #b7d59b;
+        font-family: ${LAMETA_UI_FONT};
       `}
     >
       <div
@@ -63,25 +68,35 @@ const SegmentMode = observer(function SegmentMode(props: { harness: HarnessStore
           border-bottom: 1px solid #b7d59b;
         `}
       >
-        <button
-          type="button"
+        <Button
+          variant="outlined"
           onClick={() => harness.showGrid()}
-          css={css`
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 3px 10px;
-            font-size: 13px;
-            font-weight: 600;
-            color: #33691e;
-            background: #fff;
-            border: 1px solid #b7d59b;
-            border-radius: 3px;
-            cursor: pointer;
-          `}
+          sx={{
+            textTransform: "none",
+            fontFamily: "inherit",
+            fontSize: 13,
+            fontWeight: 600,
+            gap: "6px",
+            py: "3px",
+            px: "10px",
+            color: "#33691e",
+            background: "#fff",
+            borderColor: "#b7d59b",
+            "&:hover": { borderColor: "#8dbf63", background: "#fff" },
+          }}
         >
           ← {t("annotations.backToTranscriptions", "Back to transcriptions")}
-        </button>
+        </Button>
+        <span
+          css={css`
+            margin-left: 200px;
+            font-size: 14px;
+            font-weight: bold;
+            color: #33691e;
+          `}
+        >
+          {t("annotations.manualAudioSegmenter", "Manual Audio Segmenter")}
+        </span>
       </div>
       {harness.projectStore.segmenter ? (
         <ManualSegmenterView store={harness.projectStore} height="auto" />
@@ -114,39 +129,44 @@ const GridMode = observer(function GridMode(props: { harness: HarnessStore }) {
           border: 1px solid #b7d59b;
         `}
       >
-        <select
+        <Select
           disabled
+          size="small"
+          defaultValue="70%"
           title={stubTitle(t("annotations.zoom", "Zoom"))}
-          css={css`
-            font-size: 13px;
-            padding: 2px 4px;
-            opacity: 0.65;
-          `}
+          sx={{
+            fontSize: 13,
+            background: "#fff",
+            "& .MuiSelect-select": { py: "2px", pl: "8px" },
+            "&.Mui-disabled": { opacity: 0.65 },
+          }}
         >
-          <option>70%</option>
-        </select>
+          <MenuItem value="70%" sx={{ fontSize: 13 }}>
+            70%
+          </MenuItem>
+        </Select>
         <StubButton feature={t("annotations.oralTools", "Oral Annotations Tools")}>
           🗣 {t("annotations.oralTools", "Oral Annotations Tools")} ▾
         </StubButton>
-        <button
-          type="button"
+        <Button
+          variant="contained"
+          disableElevation
           onClick={() => harness.showSegmenter()}
-          css={css`
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 3px 10px;
-            font-size: 13px;
-            font-weight: 600;
-            color: #fff;
-            background: #2e7d32;
-            border: 1px solid #2e7d32;
-            border-radius: 3px;
-            cursor: pointer;
-          `}
+          sx={{
+            textTransform: "none",
+            fontFamily: "inherit",
+            fontSize: 13,
+            fontWeight: 600,
+            gap: "4px",
+            py: "3px",
+            px: "10px",
+            color: "#fff",
+            background: "#2e7d32",
+            "&:hover": { background: "#276b2a" },
+          }}
         >
           ↔ {t("annotations.segment", "Segment…")}
-        </button>
+        </Button>
         <StubButton feature={t("annotations.export", "Export")}>
           {t("annotations.export", "Export")} ▾
         </StubButton>

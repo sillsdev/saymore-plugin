@@ -13,6 +13,7 @@ import {
 } from "../waveform/WaveformSurface";
 import { BoundaryLayer } from "../waveform/BoundaryLayer";
 import { SegmenterToolbar } from "./SegmenterToolbar";
+import { LAMETA_UI_FONT } from "../../lametaTheme";
 
 /**
  * The Manual Segmenter tool: waveform + interaction overlay + toolbar, wired to
@@ -196,7 +197,7 @@ export const ManualSegmenterView = observer(function ManualSegmenterView(props: 
         display: flex;
         flex-direction: column;
         height: ${height};
-        font-family: system-ui, sans-serif;
+        font-family: ${LAMETA_UI_FONT};
       `}
     >
       <div

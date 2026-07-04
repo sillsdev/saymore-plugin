@@ -1,6 +1,7 @@
 /** @jsxImportSource @emotion/react */
 import { css } from "@emotion/react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { LAMETA_UI_FONT } from "../../lametaTheme";
 
 /**
  * Minimal error boundary so a rendering failure in one tool shows a message
@@ -28,7 +29,7 @@ export class ErrorBoundary extends Component<
             max-width: 40rem;
             margin: 3rem auto;
             padding: 1rem;
-            font-family: system-ui, sans-serif;
+            font-family: ${LAMETA_UI_FONT};
             color: #b71c1c;
           `}
         >

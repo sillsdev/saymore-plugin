@@ -20,11 +20,11 @@ export const REPLAY_DELAY_MS = 600;
 export const PIXELS_PER_SECOND_AT_100 = 80;
 
 /** Zoom is clamped to this minimum percentage; Ctrl+1/Ctrl+3 step by ±10. */
-export const MIN_ZOOM_PERCENT = 100;
+export const MIN_ZOOM_PERCENT = 10;
 export const ZOOM_STEP_PERCENT = 10;
 
 /** Discrete presets offered by the zoom dropdown (keyboard is not limited to these). */
-export const ZOOM_PRESETS = [100, 125, 150, 175, 200, 250, 300, 500, 750, 1000];
+export const ZOOM_PRESETS = [10, 25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 500, 750, 1000];
 
 /**
  * "Close to the end" window used by the end-of-file rule on save: if the last

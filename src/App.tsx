@@ -7,6 +7,7 @@ import { OpenScreen } from "./components/shell/OpenScreen";
 import { StartAnnotatingView } from "./components/shell/StartAnnotatingView";
 import { ManualSegmenterView } from "./components/segmenter/ManualSegmenterView";
 import { ErrorBoundary } from "./components/shell/ErrorBoundary";
+import { LAMETA_UI_FONT } from "./lametaTheme";
 import {
   buildPluginConnection,
   isEmbeddedInHost,
@@ -183,7 +184,7 @@ function PluginConnecting(props: { error: string | undefined }) {
         margin: 2rem auto;
         max-width: 40rem;
         padding: 0 1rem;
-        font-family: system-ui, sans-serif;
+        font-family: ${LAMETA_UI_FONT};
         line-height: 1.5;
       `}
     >

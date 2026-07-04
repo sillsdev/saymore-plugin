@@ -2,12 +2,14 @@
 import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
 import { useEffect, useState } from "react";
+import Button from "@mui/material/Button";
 import { t } from "../l10n";
 import type { ProjectStore } from "../state/ProjectStore";
 import { StartAnnotatingView } from "../components/shell/StartAnnotatingView";
 import { HarnessStore } from "./HarnessStore";
 import { FileTree } from "./FileTree";
 import { AnnotationsTabView } from "./AnnotationsTabView";
+import { LAMETA_UI_FONT } from "../lametaTheme";
 
 /**
  * Standalone **host simulator**: the root page at http://localhost:5175/. It
@@ -31,7 +33,7 @@ export const HostSimulator = observer(function HostSimulator(props: { store: Pro
         max-width: 60rem;
         margin: 1.5rem auto;
         padding: 0 1rem;
-        font-family: system-ui, sans-serif;
+        font-family: ${LAMETA_UI_FONT};
       `}
     >
       <Header harness={harness} />
@@ -44,13 +46,14 @@ export const HostSimulator = observer(function HostSimulator(props: { store: Pro
               "This session is a connected disk folder. Reconnect to grant access again.",
             )}
           </p>
-          <button
-            type="button"
-            css={primaryButtonCss}
+          <Button
+            variant="contained"
+            disableElevation
+            sx={primaryButtonSx}
             onClick={() => void harness.reconnectFolder()}
           >
             {t("harness.reconnect", "Reconnect folder")}
-          </button>
+          </Button>
         </div>
       ) : harness.phase === "error" ? (
         <p
@@ -148,17 +151,17 @@ const Header = observer(function Header(props: { harness: HarnessStore }) {
           flex: 1;
         `}
       />
-      <button
-        type="button"
-        css={secondaryButtonCss}
+      <Button
+        variant="outlined"
+        sx={secondaryButtonSx}
         title={t("harness.resetHint", "Drop any created eaf / edits and reseed the sample")}
         onClick={() => void harness.reset()}
       >
         {t("harness.reset", "Reset sample")}
-      </button>
-      <button type="button" css={secondaryButtonCss} onClick={() => void harness.connectFolder()}>
+      </Button>
+      <Button variant="outlined" sx={secondaryButtonSx} onClick={() => void harness.connectFolder()}>
         {t("harness.connectFolder", "Connect folder…")}
-      </button>
+      </Button>
     </div>
   );
 });
@@ -173,20 +176,24 @@ const hintCss = css`
   color: #78909c;
   font-size: 14px;
 `;
-const primaryButtonCss = css`
-  padding: 6px 14px;
-  font-size: 14px;
-  color: #fff;
-  background: #2e7d32;
-  border: 1px solid #2e7d32;
-  border-radius: 4px;
-  cursor: pointer;
-`;
-const secondaryButtonCss = css`
-  padding: 4px 12px;
-  font-size: 13px;
-  border: 1px solid #90a4ae;
-  border-radius: 4px;
-  background: #fff;
-  cursor: pointer;
-`;
+const primaryButtonSx = {
+  textTransform: "none",
+  fontFamily: "inherit",
+  fontSize: 14,
+  py: "6px",
+  px: "14px",
+  color: "#fff",
+  background: "#2e7d32",
+  "&:hover": { background: "#276b2a" },
+} as const;
+const secondaryButtonSx = {
+  textTransform: "none",
+  fontFamily: "inherit",
+  fontSize: 13,
+  py: "4px",
+  px: "12px",
+  color: "#37474f",
+  borderColor: "#90a4ae",
+  background: "#fff",
+  "&:hover": { borderColor: "#607d8b", background: "#fff" },
+} as const;

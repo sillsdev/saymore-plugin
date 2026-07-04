@@ -2,9 +2,11 @@
 import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
 import { useState } from "react";
+import IconButton from "@mui/material/IconButton";
 import { t } from "../l10n";
 import type { HarnessStore } from "./HarnessStore";
 import { StubButton } from "./stub";
+import { LAMETA_UI_FONT } from "../lametaTheme";
 
 /**
  * First real slice of the SayMore transcription grid (reference screenshot 2):
@@ -41,7 +43,7 @@ export const TranscriptionGrid = observer(function TranscriptionGrid(props: {
     <div
       css={css`
         border: 1px solid #b7d59b;
-        font-family: system-ui, sans-serif;
+        font-family: ${LAMETA_UI_FONT};
         font-size: 13px;
       `}
     >
@@ -95,31 +97,28 @@ export const TranscriptionGrid = observer(function TranscriptionGrid(props: {
                 `,
               ]}
             >
-              <button
-                type="button"
+              <IconButton
                 title={t("grid.play", "Play this segment")}
                 onClick={(e) => {
                   e.stopPropagation();
                   segmenter?.playSegment(i);
                 }}
                 disabled={!segmenter}
-                css={css`
-                  width: 22px;
-                  height: 22px;
-                  border-radius: 50%;
-                  border: 2px solid #2e7d32;
-                  color: #2e7d32;
-                  background: #fff;
-                  cursor: pointer;
-                  line-height: 1;
-                  &:disabled {
-                    opacity: 0.5;
-                    cursor: default;
-                  }
-                `}
+                sx={{
+                  width: 22,
+                  height: 22,
+                  p: 0,
+                  fontSize: 12,
+                  lineHeight: 1,
+                  border: "2px solid #2e7d32",
+                  color: "#2e7d32",
+                  background: "#fff",
+                  "&:hover": { background: "#eef6ee" },
+                  "&.Mui-disabled": { opacity: 0.5 },
+                }}
               >
                 ▶
-              </button>
+              </IconButton>
             </div>
             <EditableCell
               key={`tr-${i}-${rev}`}

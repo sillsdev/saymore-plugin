@@ -1,11 +1,15 @@
 /** @jsxImportSource @emotion/react */
 import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
+import Button from "@mui/material/Button";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
 import { t } from "../../l10n";
 import type { SegmenterViewModel } from "../../state/SegmenterViewModel";
+import { ZOOM_PRESETS } from "../../model/SayMoreConstants";
 
-/** SayMore's zoom combo choices (SegmenterDlgBase.cs). */
-const ZOOM_CHOICES = [100, 125, 150, 175, 200, 250, 300, 500, 750, 1000];
+/** SayMore's zoom combo choices (SegmenterDlgBase.cs), extended down to the 10% minimum. */
+const ZOOM_CHOICES = ZOOM_PRESETS;
 
 /** Match the original readout ("00.0 / 02.9"): seconds with one decimal. */
 function formatTime(sec: number): string {
@@ -16,7 +20,10 @@ function formatTime(sec: number): string {
 // ── Icons (approximating SayMore's toolstrip glyphs) ────────────────────────
 const PlayIcon = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-    <path d="M3 2 L13 8 L3 14 Z" fill="#2e7d32" />
+    <circle cx="8" cy="8" r="6.6" fill="none" stroke="#2e7d32" strokeWidth="1.6" />
+    {/* Optically centered: the triangle's centroid (⅓ from its base, not its
+        bounding-box center) sits at (8,8). Base x=6, apex x=12 → centroid x=8. */}
+    <path d="M6 5 L6 11 L12 8 Z" fill="#2e7d32" />
   </svg>
 );
 const StopIcon = () => (
@@ -78,25 +85,33 @@ export const SegmenterToolbar = observer(function SegmenterToolbar(props: {
           gap: 2px;
         `}
       >
-        <button type="button" onClick={() => vm.togglePlay()} css={action}>
-          {vm.isPlaying ? <StopIcon /> : <PlayIcon />}
+        <Button
+          variant="text"
+          startIcon={vm.isPlaying ? <StopIcon /> : <PlayIcon />}
+          onClick={() => vm.togglePlay()}
+          sx={actionSx}
+        >
           {vm.isPlaying
             ? t("segmenter.stop", "Stop (press the SPACE BAR)")
             : t("segmenter.listen", "Listen (press the SPACE BAR)")}
-        </button>
-        <button type="button" onClick={() => vm.addBoundaryAtCursor()} css={action}>
-          <BoundaryIcon />
+        </Button>
+        <Button
+          variant="text"
+          startIcon={<BoundaryIcon />}
+          onClick={() => vm.addBoundaryAtCursor()}
+          sx={actionSx}
+        >
           {t("segmenter.addBoundary", "Add Segment Boundary (press ENTER)")}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="text"
+          startIcon={<DeleteIcon />}
           disabled={vm.selectedBoundaryIndex < 0}
           onClick={() => vm.deleteSelectedBoundary()}
-          css={action}
+          sx={actionSx}
         >
-          <DeleteIcon />
           {t("segmenter.deleteBoundary", "Delete Selected Boundary (press DELETE)")}
-        </button>
+        </Button>
       </div>
 
       <span
@@ -141,47 +156,41 @@ export const SegmenterToolbar = observer(function SegmenterToolbar(props: {
           `}
         >
           {t("segmenter.zoom", "Zoom:")}
-          <select
+          <Select
+            size="small"
             value={vm.zoomPercent}
             onChange={(e) => vm.setZoomPercent(Number(e.target.value))}
             title="Ctrl+1: In; Ctrl+2: 100%; Ctrl+3: Out"
-            css={css`
-              padding: 2px 4px;
-              border: 1px solid #90a4ae;
-              border-radius: 3px;
-              background: #fff;
-              font-size: 13px;
-            `}
+            sx={{
+              fontSize: 13,
+              background: "#fff",
+              "& .MuiSelect-select": { py: "2px", pl: "8px" },
+            }}
           >
             {zoomOptions.map((p) => (
-              <option key={p} value={p}>
+              <MenuItem key={p} value={p} sx={{ fontSize: 13 }}>
                 {p}%
-              </option>
+              </MenuItem>
             ))}
-          </select>
+          </Select>
         </label>
       </div>
     </div>
   );
 });
 
-const action = css`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 4px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  text-align: left;
-  font-size: 13px;
-  color: #212121;
-  &:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-  &:not(:disabled):hover {
-    color: #000;
-    text-decoration: underline;
-  }
-`;
+// Flat, left-aligned text button matching SayMore's toolstrip items.
+const actionSx = {
+  justifyContent: "flex-start",
+  textTransform: "none",
+  fontFamily: "inherit",
+  fontSize: 13,
+  fontWeight: 400,
+  color: "#212121",
+  px: 0.5,
+  py: 0.5,
+  minWidth: 0,
+  lineHeight: 1.3,
+  "& .MuiButton-startIcon": { mr: 1 },
+  "&:hover": { background: "rgba(0,0,0,0.04)", color: "#000" },
+} as const;

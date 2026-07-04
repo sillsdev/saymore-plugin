@@ -81,7 +81,7 @@ describe("SegmenterViewModel edits + undo", () => {
     }
   });
 
-  it("zoom steps by ±10 and clamps at 100%", () => {
+  it("zoom steps by ±10 and clamps at 10%", () => {
     const { document, playback } = makeVm();
     const vm = new SegmenterViewModel({ document, playback });
     try {
@@ -89,9 +89,8 @@ describe("SegmenterViewModel edits + undo", () => {
       vm.zoomIn();
       expect(vm.zoomPercent).toBe(110);
       expect(vm.minPxPerSec).toBeCloseTo(88, 5); // 80 * 1.1
-      vm.zoomOut();
-      vm.zoomOut();
-      expect(vm.zoomPercent).toBe(100); // clamped, never below 100
+      for (let i = 0; i < 20; i++) vm.zoomOut();
+      expect(vm.zoomPercent).toBe(10); // clamped, never below 10
     } finally {
       vm.dispose();
     }

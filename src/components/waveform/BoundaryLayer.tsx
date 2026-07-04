@@ -1,6 +1,7 @@
 /** @jsxImportSource @emotion/react */
 import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
+import IconButton from "@mui/material/IconButton";
 import { useState } from "react";
 import { clampBoundaryPosition } from "../../model/BoundaryRules";
 import { isSegmentIgnored } from "../../model/IgnoreMarkers";
@@ -81,34 +82,30 @@ export const BoundaryLayer = observer(function BoundaryLayer(props: {
         const ignored = isSegmentIgnored(seg);
         return (
           <div key={`ctl-${i}`} onMouseEnter={() => vm.setHoveredSegment(i)}>
-            <button
-              type="button"
+            <IconButton
               title={t("segmenter.playSegment", "Listen to this segment")}
               onClick={() => vm.playSegment(i)}
-              css={playButtonCss}
+              sx={playButtonSx}
               style={{ left: startX + 3 }}
             >
               <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
                 <path d="M2 1 L11 6 L2 11 Z" fill="#2e7d32" />
               </svg>
-            </button>
-            <button
-              type="button"
+            </IconButton>
+            <IconButton
               title={t("segmenter.ignore", "Ignore this segment")}
               aria-pressed={ignored}
               onClick={() => vm.toggleIgnore(i)}
-              css={css`
-                ${ignoreButtonCss};
-                background: ${ignored ? "#d9a441" : "#fff"};
-                opacity: ${ignored ? 1 : 0};
-                &:hover {
-                  opacity: 1;
-                }
-              `}
+              sx={{
+                ...ignoreButtonSx,
+                background: ignored ? "#d9a441" : "#fff",
+                opacity: ignored ? 1 : 0,
+                "&:hover": { opacity: 1, background: ignored ? "#d9a441" : "#fff" },
+              }}
               style={{ left: startX + 3, width: Math.max(0, width - 6) }}
             >
               {ignored ? "🚫" : "◻"}
-            </button>
+            </IconButton>
           </div>
         );
       })}
@@ -215,37 +212,31 @@ function pennantCss(top: boolean, color: string) {
   `;
 }
 
-const playButtonCss = css`
-  position: absolute;
-  bottom: 3px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 1px solid #2e7d32;
-  border-radius: 3px;
-  background: #fff;
-  cursor: pointer;
-  pointer-events: auto;
-  &:hover {
-    background: #eef6ee;
-  }
-`;
+const playButtonSx = {
+  position: "absolute",
+  bottom: "3px",
+  width: 20,
+  height: 20,
+  p: 0,
+  border: "1px solid #2e7d32",
+  borderRadius: "3px",
+  background: "#fff",
+  pointerEvents: "auto",
+  "&:hover": { background: "#eef6ee" },
+} as const;
 
-const ignoreButtonCss = css`
-  position: absolute;
-  top: 2px;
-  height: 20px;
-  font-size: 11px;
-  line-height: 1;
-  padding: 2px 5px;
-  border: 1px solid #90a4ae;
-  border-radius: 3px;
-  cursor: pointer;
-  pointer-events: auto;
-  transition: opacity 0.1s;
-  max-width: 28px;
-  overflow: hidden;
-`;
+const ignoreButtonSx = {
+  position: "absolute",
+  top: "2px",
+  height: 20,
+  fontSize: 11,
+  lineHeight: 1,
+  p: "2px 5px",
+  minWidth: 0,
+  border: "1px solid #90a4ae",
+  borderRadius: "3px",
+  pointerEvents: "auto",
+  transition: "opacity 0.1s",
+  maxWidth: 28,
+  overflow: "hidden",
+} as const;

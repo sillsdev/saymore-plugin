@@ -2,9 +2,11 @@
 import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
 import { useRef, useState } from "react";
+import Button from "@mui/material/Button";
 import { t } from "../../l10n";
 import { BrowserDirectoryAdapter } from "../../fs/BrowserDirectoryAdapter";
 import type { ProjectStore } from "../../state/ProjectStore";
+import { LAMETA_UI_FONT } from "../../lametaTheme";
 
 /**
  * Landing screen: open a real SayMore session folder (File System Access API,
@@ -40,7 +42,7 @@ export const OpenScreen = observer(function OpenScreen(props: { store: ProjectSt
         max-width: 40rem;
         margin: 4rem auto;
         padding: 0 1rem;
-        font-family: system-ui, sans-serif;
+        font-family: ${LAMETA_UI_FONT};
         line-height: 1.5;
       `}
     >
@@ -85,20 +87,20 @@ export const OpenScreen = observer(function OpenScreen(props: { store: ProjectSt
         `}
       >
         <p>{t("open.dropHint", "Drop one audio file here to segment it")}</p>
-        <button
-          type="button"
+        <Button
+          variant="outlined"
           onClick={() => fileInputRef.current?.click()}
-          css={css`
-            margin-top: 0.5rem;
-            padding: 6px 12px;
-            border: 1px solid #90a4ae;
-            border-radius: 4px;
-            background: #fff;
-            cursor: pointer;
-          `}
+          sx={{
+            mt: "0.5rem",
+            textTransform: "none",
+            fontFamily: "inherit",
+            color: "#37474f",
+            borderColor: "#90a4ae",
+            "&:hover": { borderColor: "#607d8b" },
+          }}
         >
           {t("open.pickFile", "Choose an audio file…")}
-        </button>
+        </Button>
         <input
           ref={fileInputRef}
           type="file"
@@ -118,24 +120,20 @@ export const OpenScreen = observer(function OpenScreen(props: { store: ProjectSt
           margin-top: 1.5rem;
         `}
       >
-        <button
-          type="button"
+        <Button
+          variant="outlined"
           disabled={!supportsDirectory}
           onClick={() => void openFolder()}
-          css={css`
-            padding: 8px 14px;
-            border: 1px solid #90a4ae;
-            border-radius: 4px;
-            background: #fff;
-            cursor: pointer;
-            &:disabled {
-              opacity: 0.5;
-              cursor: default;
-            }
-          `}
+          sx={{
+            textTransform: "none",
+            fontFamily: "inherit",
+            color: "#37474f",
+            borderColor: "#90a4ae",
+            "&:hover": { borderColor: "#607d8b" },
+          }}
         >
           {t("open.openFolder", "Open a SayMore session folder…")}
-        </button>
+        </Button>
         {!supportsDirectory && (
           <p
             css={css`

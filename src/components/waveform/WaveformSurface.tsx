@@ -12,7 +12,7 @@ import {
 import WaveSurfer from "wavesurfer.js";
 import type { Envelope } from "../../audio/EnvelopeCache";
 import { envelopeToPeaks } from "../../audio/envelope";
-import { LAMETA_DARK_GREEN } from "../../lametaTheme";
+import { LAMETA_WAVEFORM } from "../../lametaTheme";
 
 /**
  * The current mapping between media time and on-screen pixels, handed to the
@@ -120,8 +120,8 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
       const ws = WaveSurfer.create({
         container,
         height,
-        waveColor: LAMETA_DARK_GREEN,
-        progressColor: LAMETA_DARK_GREEN,
+        waveColor: LAMETA_WAVEFORM,
+        progressColor: LAMETA_WAVEFORM,
         cursorColor: "transparent", // the overlay draws the edit cursor
         cursorWidth: 0,
         backend: "MediaElement",
@@ -252,6 +252,7 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
               position: absolute;
               inset: 0;
               z-index: 1;
+              opacity: 0.7;
             `}
           />
           <div

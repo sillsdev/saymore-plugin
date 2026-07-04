@@ -187,11 +187,7 @@ const AnnotationCell = observer(function AnnotationCell(props: {
         height: ${height}px;
         border-right: 1px solid #dce7d0;
         pointer-events: auto;
-        background: ${cell.isCurrent
-          ? SELECTED_SEGMENT_HIGHLIGHT_COLOR
-          : cell.annotated
-            ? "rgba(46, 125, 50, 0.10)"
-            : "transparent"};
+        background: ${cell.isCurrent ? SELECTED_SEGMENT_HIGHLIGHT_COLOR : "transparent"};
       `}
       style={{ left: rect.left, width: rect.width }}
     >

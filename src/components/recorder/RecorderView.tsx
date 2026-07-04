@@ -192,6 +192,7 @@ export const RecorderView = observer(function RecorderView(props: { store: Proje
             envelope={store.envelope}
             mediaElement={mediaElement}
             minPxPerSec={PIXELS_PER_SECOND_AT_100}
+            waveColor={LAMETA_DARK_BLUE}
             overlay={(viewport) => <RecorderOverlay vm={vm} viewport={viewport} />}
           />
         </div>
@@ -316,12 +317,12 @@ function RowLabel(props: { color: string; children: React.ReactNode }) {
 }
 
 /**
- * The blue-family source row: a medium-blue wash over the segmented region
- * (SayMore's segmented-background color) and a lighter/greyer wash over the
- * unsegmented remainder, the current-segment (or virtual new-boundary)
- * Moccasin highlight, the draggable new-boundary line, and the per-segment
- * play/Ignored/Undo controls — all positioned in the wave's content
- * coordinates.
+ * The source row's overlay: a uniform background (the blue comes from the
+ * waveform polyline itself, via WaveformSurface's waveColor) with only the
+ * current segment (or virtual new-boundary) highlighted Moccasin — John
+ * asked to drop the earlier per-segment/segmented-vs-unsegmented background
+ * washes. Also the draggable new-boundary line and the per-segment
+ * play/Ignored/Undo controls, all in the wave's content coordinates.
  */
 const RecorderOverlay = observer(function RecorderOverlay(props: {
   vm: RecorderViewModel;
@@ -330,7 +331,6 @@ const RecorderOverlay = observer(function RecorderOverlay(props: {
   const { vm, viewport } = props;
   const cells = vm.cells;
   const lastSegmentEnd = cells.length > 0 ? cells[cells.length - 1].range.end : 0;
-  const segmentedX = viewport.secondsToPx(lastSegmentEnd);
 
   const currentCell = cells.find((c) => c.isCurrent);
   const highlight =
@@ -342,28 +342,6 @@ const RecorderOverlay = observer(function RecorderOverlay(props: {
 
   return (
     <>
-      <div
-        css={css`
-          position: absolute;
-          top: 0;
-          left: 0;
-          height: ${viewport.height}px;
-          background: rgba(61, 94, 144, 0.12);
-          pointer-events: none;
-        `}
-        style={{ width: segmentedX }}
-      />
-      <div
-        css={css`
-          position: absolute;
-          top: 0;
-          height: ${viewport.height}px;
-          background: rgba(120, 130, 140, 0.1);
-          pointer-events: none;
-        `}
-        style={{ left: segmentedX, width: Math.max(0, viewport.contentWidth - segmentedX) }}
-      />
-
       {highlight && (
         <div
           css={css`

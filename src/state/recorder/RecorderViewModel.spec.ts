@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { InMemoryAdapter } from "../../fs/InMemoryAdapter";
 import {
   OralAnnotationIndex,
@@ -316,16 +316,74 @@ describe("RecorderViewModel — per-cell playback / erase / re-record", () => {
   });
 });
 
-describe("RecorderViewModel — error mode", () => {
+describe("RecorderViewModel — error / recovery", () => {
   let vm: RecorderViewModel;
   let recorder: SpyRecorder;
+  let playback: SpyPlaybackEngine;
   beforeEach(async () => {
-    ({ vm, recorder } = await makeVm());
+    ({ vm, recorder, playback } = await makeVm());
   });
+  afterEach(() => vm.dispose()); // clears the device-check poll timer
 
-  it("enters Error mode when the device errors", () => {
+  it("enters Error mode when the device errors mid-take", () => {
     recorder.emitError();
     expect(vm.mode).toBe("Error");
     expect(vm.isRecording).toBe(false);
+  });
+
+  it("recovers to Listen when the device returns", async () => {
+    recorder.emitError();
+    recorder.recover();
+    await vm.retryDevice();
+    expect(vm.mode).toBe("Listen");
+  });
+
+  it("recovers to Record when the current segment was already heard", async () => {
+    listenToCompletion(vm, playback);
+    expect(vm.mode).toBe("Record");
+    recorder.emitError();
+    expect(vm.mode).toBe("Error");
+    recorder.recover();
+    await vm.retryDevice();
+    expect(vm.mode).toBe("Record");
+  });
+
+  it("stays in Error while the device is still unavailable", async () => {
+    recorder.emitError();
+    await vm.retryDevice(); // not recovered yet
+    expect(vm.mode).toBe("Error");
+  });
+});
+
+describe("RecorderViewModel — done mode", () => {
+  it("is Done when every segment is annotated and fully segmented", async () => {
+    // Media exactly 3s so [0,3] is fully segmented once all three are recorded.
+    const adapter = new InMemoryAdapter();
+    adapter.seed(MEDIA, new Uint8Array([1]));
+    for (const [s, e] of [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+    ] as Array<[number, number]>) {
+      adapter.seed(`${FOLDER}/${s}_to_${e}_Careful.wav`, new Uint8Array([7]));
+    }
+    const document = new AnnotationDocumentStore();
+    document.init(MEDIA, 3, buildAutoSegmentedEafXml(MEDIA, [1, 2, 3]));
+    const oralIndex = await OralAnnotationIndex.build(adapter, MEDIA);
+    const store = await RecordingFileStore.build(adapter, oralIndex, MEDIA);
+    const recorder = new SpyRecorder();
+    await recorder.open();
+    const vm = new RecorderViewModel({
+      kind: "Careful",
+      document,
+      playback: new SpyPlaybackEngine(),
+      recorder,
+      store,
+      annotationPlayback: new SpyPlaybackEngine(),
+      clipUrlFactory: () => "blob:x",
+      revokeClipUrl: () => {},
+    });
+    expect(vm.currentIndex).toBe("new");
+    expect(vm.mode).toBe("Done");
   });
 });

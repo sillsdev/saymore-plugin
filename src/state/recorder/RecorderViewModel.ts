@@ -50,6 +50,8 @@ export interface RecorderDeps {
 const AUTO_SAVE_DELAY_MS = 400;
 /** Slop when deciding whether source playback reached the segment end. */
 const PLAYBACK_END_EPS_SEC = 0.02;
+/** Poll cadence while in Error mode, retrying the capture device (SayMore ~1.5s). */
+const DEVICE_CHECK_INTERVAL_MS = 1500;
 const MIN_SEC = MIN_SEGMENT_LENGTH_MS / 1000;
 
 /**
@@ -91,6 +93,7 @@ export class RecorderViewModel {
   private reRecording = false;
   private warningTimer: ReturnType<typeof setTimeout> | undefined;
   private autoSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  private deviceCheckTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(deps: RecorderDeps) {
     this.kind = deps.kind;
@@ -118,6 +121,7 @@ export class RecorderViewModel {
       | "reRecording"
       | "warningTimer"
       | "autoSaveTimer"
+      | "deviceCheckTimer"
     >(this, {
       document: false,
       playback: false,
@@ -135,6 +139,7 @@ export class RecorderViewModel {
       reRecording: false,
       warningTimer: false,
       autoSaveTimer: false,
+      deviceCheckTimer: false,
     });
     this.initSelection();
   }
@@ -451,6 +456,7 @@ export class RecorderViewModel {
 
   dispose(): void {
     this.disposeError();
+    this.stopDeviceCheck();
     if (this.warningTimer) clearTimeout(this.warningTimer);
     if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
     this.revokeCurrentClip();
@@ -549,6 +555,44 @@ export class RecorderViewModel {
     this.mode = "Error";
     this.isListening = false;
     this.isRecording = false;
+    this.startDeviceCheck();
+  }
+
+  /**
+   * Retry the capture device (SayMore CheckForRecordingDevice). When it comes
+   * back, leave Error mode for Record (if the current segment was already heard)
+   * or Listen/Done. Safe to call repeatedly; a no-op unless in Error mode.
+   */
+  async retryDevice(): Promise<void> {
+    if (this.mode !== "Error") return;
+    try {
+      await this.recorder.open();
+    } catch {
+      return; // still unavailable; keep polling
+    }
+    if (this.recorder.state === "error") return;
+    runInAction(() => {
+      this.stopDeviceCheck();
+      this.mode = this.isFullyAnnotated
+        ? "Done"
+        : this.hasListenedToCurrent && this.selectedSegmentIsLongEnough
+          ? "Record"
+          : "Listen";
+    });
+  }
+
+  private startDeviceCheck(): void {
+    if (this.deviceCheckTimer || typeof setInterval === "undefined") return;
+    this.deviceCheckTimer = setInterval(() => {
+      void this.retryDevice();
+    }, DEVICE_CHECK_INTERVAL_MS);
+  }
+
+  private stopDeviceCheck(): void {
+    if (this.deviceCheckTimer) {
+      clearInterval(this.deviceCheckTimer);
+      this.deviceCheckTimer = undefined;
+    }
   }
 
   private flashTooShort(): void {

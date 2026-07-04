@@ -1,6 +1,6 @@
 import { makeAutoObservable } from "mobx";
 import type { AnnotationSegment } from "../model/AnnotationSegment";
-import { makeTimeRange } from "../model/TimeRange";
+import { makeTimeRange, type TimeRange } from "../model/TimeRange";
 import { BoundaryResult } from "../model/BoundaryRules";
 import {
   MIN_ZOOM_PERCENT,
@@ -14,10 +14,19 @@ import {
 import { t } from "../l10n";
 import type { PlaybackEngine } from "../audio/PlaybackEngine";
 import type { FileSystemAdapter } from "../fs/FileSystemAdapter";
-import type { OralAnnotationIndex, FileOp } from "../fs/OralAnnotationFiles";
+import {
+  segmentWavName,
+  type OralAnnotationIndex,
+  type OralAnnotationKind,
+  type FileOp,
+} from "../fs/OralAnnotationFiles";
+import { csFloatToString, parseCsFloat } from "../fs/csFloat";
 import type { AnnotationDocumentStore } from "./AnnotationDocumentStore";
 import { UndoStack } from "./UndoStack";
 import { OralFileReconciler } from "./OralFileReconciler";
+
+const ORAL_KINDS: readonly OralAnnotationKind[] = ["Careful", "Translation"];
+const ORAL_BASE_RE = /^(.+)_to_(.+?)(_Careful|_Translation)\.wav$/i;
 
 /** No segment/boundary currently selected. */
 export const NONE = -1;
@@ -46,6 +55,13 @@ export class SegmenterViewModel {
   private readonly oralIndex?: OralAnnotationIndex;
   /** Keeps `_Annotations/` WAVs consistent with the model on every flush. */
   private readonly reconciler?: OralFileReconciler;
+  /**
+   * Live map of `${csFloat(start)}|${csFloat(end)}|${kind}` → current WAV disk
+   * name, seeded from the index and updated on every edit. Op computation reads
+   * this instead of the oral index, which is only refreshed on flush — so rapid
+   * edits within one debounce window (e.g. arrow-nudges) still chain correctly.
+   */
+  private oralNames = new Map<string, string>();
 
   cursorSec = 0;
   /** Index of the segment whose END boundary is selected, or NONE. */
@@ -66,7 +82,13 @@ export class SegmenterViewModel {
     this.reconciler = deps.adapter ? new OralFileReconciler(deps.adapter) : undefined;
     makeAutoObservable<
       SegmenterViewModel,
-      "adapter" | "oralIndex" | "reconciler" | "replayTimer" | "warningTimer" | "autoSaveTimer"
+      | "adapter"
+      | "oralIndex"
+      | "reconciler"
+      | "oralNames"
+      | "replayTimer"
+      | "warningTimer"
+      | "autoSaveTimer"
     >(this, {
       document: false,
       playback: false,
@@ -74,6 +96,7 @@ export class SegmenterViewModel {
       adapter: false,
       oralIndex: false,
       reconciler: false,
+      oralNames: false,
       replayTimer: false,
       warningTimer: false,
       autoSaveTimer: false,
@@ -219,14 +242,24 @@ export class SegmenterViewModel {
 
   // ── Edits ────────────────────────────────────────────────────────────────
   private runEdit(label: string, fileOps: FileOp[], mutate: () => BoundaryResult): BoundaryResult {
-    const before = this.document.tiers.snapshot();
+    const beforeTiers = this.document.tiers.snapshot();
+    const beforeOral = this.snapshotOral();
     const result = mutate();
     if (result !== BoundaryResult.Success) return result;
-    const after = this.document.tiers.snapshot();
+    // Advance the live name map to match this edit's ops (only on success).
+    this.applyOpsToTracker(fileOps);
+    const afterTiers = this.document.tiers.snapshot();
+    const afterOral = this.snapshotOral();
     this.undoStack.do({
       label,
-      apply: () => this.document.tiers.replaceAll(after),
-      revert: () => this.document.tiers.replaceAll(before),
+      apply: () => {
+        this.document.tiers.replaceAll(afterTiers);
+        this.oralNames = new Map(afterOral);
+      },
+      revert: () => {
+        this.document.tiers.replaceAll(beforeTiers);
+        this.oralNames = new Map(beforeOral);
+      },
       fileOps,
     });
     this.document.bumpVersion();
@@ -239,10 +272,7 @@ export class SegmenterViewModel {
     const at = this.editPositionSec;
     // Splitting a segment that owns oral recordings invalidates them.
     const enclosing = this.document.tiers.indexOfSegmentAt(at);
-    const fileOps =
-      enclosing >= 0 && this.oralIndex
-        ? this.oralIndex.computeDeleteOps(this.segments[enclosing].range)
-        : [];
+    const fileOps = enclosing >= 0 ? this.deleteOralFor(this.segments[enclosing].range) : [];
     const result = this.runEdit(t("segmenter.cmd.addBoundary", "Add boundary"), fileOps, () =>
       this.document.tiers.insertBoundary(at),
     );
@@ -316,6 +346,77 @@ export class SegmenterViewModel {
     });
     this.document.bumpVersion();
     this.scheduleAutoSave();
+  }
+
+  // ── Oral-file name tracker (op computation, index-staleness-proof) ───────────
+  private oralKey(startSec: number, endSec: number, kind: OralAnnotationKind): string {
+    return `${csFloatToString(startSec)}|${csFloatToString(endSec)}|${kind}`;
+  }
+
+  /**
+   * Current disk name of a segment's WAV: the live map first (reflects
+   * not-yet-flushed renames), else the index (accurate for a range untouched
+   * since the last flush). Comma-decimal disk names are preserved for the first
+   * hop because the index reports the real on-disk name.
+   */
+  private oralNameFor(range: TimeRange, kind: OralAnnotationKind): string | undefined {
+    const cached = this.oralNames.get(this.oralKey(range.start, range.end, kind));
+    if (cached !== undefined) return cached;
+    return this.oralIndex?.getFilesForRange(range).find((e) => e.kind === kind)?.name;
+  }
+
+  private snapshotOral(): [string, string][] {
+    return [...this.oralNames];
+  }
+
+  /**
+   * Rename ops to follow a boundary from `oldRange` to `newRange`, read from the
+   * live name map (not the possibly-stale index). The first hop uses the real
+   * disk name; later hops within the same debounce chain via canonical names, so
+   * coalescing yields the correct net rename even for rapid successive edits.
+   */
+  private renameOralFor(oldRange: TimeRange, newRange: TimeRange): FileOp[] {
+    const ops: FileOp[] = [];
+    for (const kind of ORAL_KINDS) {
+      const from = this.oralNameFor(oldRange, kind);
+      if (!from) continue;
+      const to = segmentWavName(this.document.mediaFileName, newRange, kind);
+      if (from !== to) ops.push({ kind: "rename", from, to });
+    }
+    return ops;
+  }
+
+  private deleteOralFor(range: TimeRange): FileOp[] {
+    const ops: FileOp[] = [];
+    for (const kind of ORAL_KINDS) {
+      const name = this.oralNameFor(range, kind);
+      if (name) ops.push({ kind: "delete", name });
+    }
+    return ops;
+  }
+
+  /** Fold a successful edit's ops into the live name map (rekey renames, drop deletes). */
+  private applyOpsToTracker(ops: readonly FileOp[]): void {
+    for (const op of ops) {
+      const name = op.kind === "rename" ? op.from : op.name;
+      for (const [key, value] of this.oralNames) {
+        if (value === name) {
+          this.oralNames.delete(key);
+          break;
+        }
+      }
+      if (op.kind === "rename") {
+        const parsed = ORAL_BASE_RE.exec(op.to.slice(op.to.lastIndexOf("/") + 1));
+        if (parsed) {
+          const kind: OralAnnotationKind =
+            parsed[3].toLowerCase() === "_careful" ? "Careful" : "Translation";
+          this.oralNames.set(
+            this.oralKey(parseCsFloat(parsed[1]), parseCsFloat(parsed[2]), kind),
+            op.to,
+          );
+        }
+      }
+    }
   }
 
   undo(): void {
@@ -398,31 +499,24 @@ export class SegmenterViewModel {
 
   // ── internals ──────────────────────────────────────────────────────────────
   private computeMoveFileOps(k: number, newEnd: number): FileOp[] {
-    if (!this.oralIndex) return [];
     const segs = this.segments;
     const cur = segs[k];
-    const ops = this.oralIndex.computeRenameOps(cur.range, makeTimeRange(cur.range.start, newEnd));
+    const ops = this.renameOralFor(cur.range, makeTimeRange(cur.range.start, newEnd));
     const next = segs[k + 1];
     if (next) {
-      ops.push(
-        ...this.oralIndex.computeRenameOps(next.range, makeTimeRange(newEnd, next.range.end)),
-      );
+      ops.push(...this.renameOralFor(next.range, makeTimeRange(newEnd, next.range.end)));
     }
     return ops;
   }
 
   private computeDeleteFileOps(k: number): FileOp[] {
-    if (!this.oralIndex) return [];
     const segs = this.segments;
     const removed = segs[k];
-    const ops = this.oralIndex.computeDeleteOps(removed.range);
+    const ops = this.deleteOralFor(removed.range);
     const next = segs[k + 1];
     if (next) {
       ops.push(
-        ...this.oralIndex.computeRenameOps(
-          next.range,
-          makeTimeRange(removed.range.start, next.range.end),
-        ),
+        ...this.renameOralFor(next.range, makeTimeRange(removed.range.start, next.range.end)),
       );
     }
     return ops;

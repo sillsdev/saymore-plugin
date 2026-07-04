@@ -148,6 +148,40 @@ describe("SegmenterViewModel debounced autosave flushes the oral-file journal", 
     }
   });
 
+  it("rapid arrow-nudges within one debounce rename the WAV to the FINAL boundary (no orphan)", async () => {
+    vi.useFakeTimers();
+    const { document, playback, adapter } = makeVm({ withOral: true });
+    const oralIndex = await OralAnnotationIndex.build(adapter, "m.wav");
+    const vm = new SegmenterViewModel({ document, playback, adapter, oralIndex });
+    try {
+      vm.setCursor(0.75);
+      vm.addBoundaryAtCursor();
+      vm.setCursor(1.25);
+      vm.addBoundaryAtCursor();
+      vm.setCursor(5);
+      vm.addBoundaryAtCursor();
+
+      // Three nudges of the annotated boundary, all before any flush fires.
+      vm.selectBoundaryAt(1.25);
+      vm.nudgeSelected(50); // 1.25 → 1.3
+      vm.nudgeSelected(50); // → 1.35
+      vm.nudgeSelected(50); // → 1.4
+      expect(vm.segments[1].range.end).toBeCloseTo(1.4, 5);
+
+      await vi.advanceTimersByTimeAsync(1200); // single debounced flush
+
+      // The WAV followed to the FINAL boundary; no intermediate orphans remain.
+      expect(await adapter.exists("m.wav_Annotations/0.75_to_1.4_Careful.wav")).toBe(true);
+      expect(await adapter.exists("m.wav_Annotations/0.75_to_1.25_Careful.wav")).toBe(false);
+      expect(await adapter.exists("m.wav_Annotations/0.75_to_1.3_Careful.wav")).toBe(false);
+      expect(await adapter.exists("m.wav_Annotations/0.75_to_1.35_Careful.wav")).toBe(false);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vm.dispose();
+    }
+  });
+
   it("undo of a flushed boundary-delete restores the deleted WAV from backup", async () => {
     vi.useFakeTimers();
     const { document, playback, adapter } = makeVm({ withOral: true });

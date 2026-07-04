@@ -1,5 +1,5 @@
 import { makeAutoObservable, runInAction } from "mobx";
-import type { RecorderService, RecordingResult } from "./Recorder";
+import type { RecorderService, RecordingDeviceInfo, RecordingResult } from "./Recorder";
 import { RECORDER_WORKLET_NAME } from "./recorderWorkletName";
 
 /** Minimum interval between live `level` updates (main-thread render pressure). */
@@ -44,6 +44,9 @@ export class MicRecorder implements RecorderService {
   private chunks: Float32Array[] = [];
   private totalSamples = 0;
 
+  /** "" = system default; set by {@link setDevice}, applied on the next (re)open. */
+  private currentDeviceId = "";
+
   private lastLevelUpdateMs = 0;
   private peakSinceLastUpdate = 0;
 
@@ -60,6 +63,7 @@ export class MicRecorder implements RecorderService {
       | "recording"
       | "chunks"
       | "totalSamples"
+      | "currentDeviceId"
       | "lastLevelUpdateMs"
       | "peakSinceLastUpdate"
       | "errorCbs"
@@ -75,6 +79,7 @@ export class MicRecorder implements RecorderService {
       recording: false,
       chunks: false,
       totalSamples: false,
+      currentDeviceId: false,
       lastLevelUpdateMs: false,
       peakSinceLastUpdate: false,
       errorCbs: false,
@@ -88,7 +93,9 @@ export class MicRecorder implements RecorderService {
     if (this.state === "open" || this.state === "recording") return;
 
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: this.currentDeviceId ? { deviceId: { exact: this.currentDeviceId } } : true,
+      });
       this.track = this.stream.getAudioTracks()[0] ?? null;
       this.track?.addEventListener("ended", this.onTrackEnded);
       navigator.mediaDevices.addEventListener("devicechange", this.onDeviceChange);
@@ -182,6 +189,35 @@ export class MicRecorder implements RecorderService {
     return () => {
       this.errorCbs.delete(cb);
     };
+  }
+
+  /**
+   * Enumerate capture devices (SayMore's RecordingDeviceIndicator). Always
+   * live-queried, never cached — calling this again after a
+   * `navigator.mediaDevices.ondevicechange` event naturally reflects the
+   * change, so there's no separate "refresh" step. Labels are populated once
+   * mic permission has been granted (i.e. after {@link open} has succeeded at
+   * least once).
+   */
+  async listDevices(): Promise<RecordingDeviceInfo[]> {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices
+      .filter((d) => d.kind === "audioinput")
+      .map((d) => ({ id: d.deviceId, label: d.label || "Microphone" }));
+  }
+
+  /**
+   * Switch capture to `id` ("" = system default). If the mic isn't currently
+   * open, just remembers the choice for the next {@link open}. Otherwise tears
+   * down and reopens the hot mic on the new device (any in-progress take is
+   * discarded, same as {@link abortRecording} — you can't carry samples across
+   * a device swap), preserving the open/error handling {@link open} already does.
+   */
+  async setDevice(id: string): Promise<void> {
+    this.currentDeviceId = id;
+    if (this.state === "idle") return;
+    this.close();
+    await this.open();
   }
 
   close(): void {

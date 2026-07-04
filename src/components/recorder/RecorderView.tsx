@@ -22,7 +22,7 @@ import {
   PIXELS_PER_SECOND_AT_100,
   SELECTED_SEGMENT_HIGHLIGHT_COLOR,
 } from "../../model/SayMoreConstants";
-import { LAMETA_DARK_GREEN, LAMETA_UI_FONT } from "../../lametaTheme";
+import { LAMETA_BLUE, LAMETA_DARK_GREEN, LAMETA_GREEN, LAMETA_UI_FONT } from "../../lametaTheme";
 
 /** Height of the annotation cells strip below the waveform. */
 const CELLS_ROW_HEIGHT = 72;
@@ -315,55 +315,74 @@ const RecorderOverlay = observer(function RecorderOverlay(props: {
   );
 });
 
-/** Bottom info strip: listen/record hints, the too-short warning, error, or Done. */
+const ERROR_RED = "#c62828";
+
+/**
+ * Bottom info strip: a colored banner for the recorder's current mode (light
+ * tint + dark text while working, a solid emphatic panel for the two
+ * end-states) plus the transient too-short warning as its own row underneath
+ * — SayMore keeps that as a separate label so it doesn't get lost inside the
+ * hint text.
+ */
 const HintStrip = observer(function HintStrip(props: { vm: RecorderViewModel }) {
   const { vm } = props;
-  const rowCss = css`
-    padding: 6px 10px;
-    font-size: 12px;
-    border-top: 1px solid #b7d59b;
-    background: #fff;
-  `;
-
-  if (vm.mode === "Error") {
-    return (
-      <div css={rowCss}>
-        <span css={css({ color: "#c62828" })}>
-          ⚠ {vm.warning ?? t("recorder.deviceError", "The microphone was disconnected.")}
-        </span>
-      </div>
-    );
-  }
-
-  if (vm.mode === "Done") {
-    return (
-      <div css={rowCss}>
-        <span css={css({ color: LAMETA_DARK_GREEN, fontWeight: 600 })}>
-          ✓ {t("recorder.done", "Finished")}
-        </span>
-      </div>
-    );
-  }
 
   return (
-    <div css={rowCss}>
-      ℹ{" "}
-      {vm.mode === "Record"
-        ? t("recorder.recordHint", "To record, press and hold the SPACE BAR.")
-        : t(
+    <div>
+      {vm.mode === "Error" ? (
+        <Banner icon="⚠" background={ERROR_RED} color="#fff" bold>
+          {vm.warning ?? t("recorder.deviceError", "The microphone was disconnected.")}
+        </Banner>
+      ) : vm.mode === "Done" ? (
+        <Banner icon="✓" background={LAMETA_DARK_GREEN} color="#fff" bold>
+          {t("recorder.done", "Finished")}
+        </Banner>
+      ) : vm.mode === "Record" ? (
+        <Banner icon="ℹ" background={LAMETA_GREEN} color="#1b3a06">
+          {t("recorder.recordHint", "To record, press and hold the SPACE BAR.")}
+        </Banner>
+      ) : (
+        <Banner icon="ℹ" background={LAMETA_BLUE} color="#12233f">
+          {t(
             "recorder.listenHint",
             "To listen to the source recording, press and hold the SPACE BAR.",
           )}
-      {vm.warning && (
-        <span
-          css={css`
-            margin-left: 12px;
-            color: #c62828;
-          `}
-        >
+        </Banner>
+      )}
+
+      {/* The too-short flash is transient and layered on top of a working
+          mode's banner above — Error/Done already show it as the banner itself. */}
+      {vm.warning && vm.mode !== "Error" && (
+        <Banner icon="⚠" background="#fdecea" color={ERROR_RED}>
           {vm.warning}
-        </span>
+        </Banner>
       )}
     </div>
   );
 });
+
+function Banner(props: {
+  icon: string;
+  background: string;
+  color: string;
+  bold?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      css={css`
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        font-size: 12px;
+        font-weight: ${props.bold ? 600 : 400};
+        border-top: 1px solid #b7d59b;
+      `}
+      style={{ background: props.background, color: props.color }}
+    >
+      <span aria-hidden>{props.icon}</span>
+      <span>{props.children}</span>
+    </div>
+  );
+}

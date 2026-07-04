@@ -147,6 +147,20 @@ describe("RecorderView", () => {
     expect(screen.getByText(/Microphone unplugged\./)).toBeTruthy();
   });
 
+  it("shows the too-short warning as its own banner alongside the Listen hint, not replacing it", () => {
+    render(
+      <RecorderView
+        store={fakeStore(
+          fakeVm({ mode: "Listen", warning: "Whoops. You need to hold down the SPACE BAR." }),
+        )}
+      />,
+    );
+    expect(
+      screen.getByText(/To listen to the source recording, press and hold the SPACE BAR/),
+    ).toBeTruthy();
+    expect(screen.getByText(/Whoops\. You need to hold down the SPACE BAR\./)).toBeTruthy();
+  });
+
   it("shows the device label from the mic meter", () => {
     render(<RecorderView store={fakeStore(fakeVm({ deviceLabel: "USB Headset" }))} />);
     expect(screen.getByText("USB Headset")).toBeTruthy();

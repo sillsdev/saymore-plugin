@@ -1,4 +1,4 @@
-import { makeAutoObservable, runInAction } from "mobx";
+import { makeAutoObservable, reaction, runInAction } from "mobx";
 import type { FileSystemAdapter } from "../fs/FileSystemAdapter";
 import { BrowserDirectoryAdapter } from "../fs/BrowserDirectoryAdapter";
 import type { ProjectStore } from "../state/ProjectStore";
@@ -48,6 +48,15 @@ export class HarnessStore {
       projectStore: false,
       adapter: false,
     });
+    // AnnotationsPaneView drives `annotationsView` straight on the ProjectStore
+    // (grid/segmenter/recorder — see components/annotations), not through this
+    // class, so mirror it into the URL here instead of via per-action
+    // delegates (those went dead the moment the pane stopped calling back
+    // through the harness).
+    reaction(
+      () => this.projectStore.annotationsView,
+      () => this.syncUrl(),
+    );
   }
 
   get tree(): SessionTree {
@@ -253,16 +262,6 @@ export class HarnessStore {
       this.selection = "eaf";
       this.projectStore.showGrid();
     });
-    this.syncUrl();
-  }
-
-  showSegmenter(): void {
-    this.projectStore.showSegmenter();
-    this.syncUrl();
-  }
-
-  showGrid(): void {
-    this.projectStore.showGrid();
     this.syncUrl();
   }
 

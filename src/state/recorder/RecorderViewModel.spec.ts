@@ -391,6 +391,15 @@ describe("RecorderViewModel — error / recovery", () => {
     await vm.retryDevice(); // not recovered yet
     expect(vm.mode).toBe("Error");
   });
+
+  it("openDevice failure surfaces as Error mode (no crash), then recovers", async () => {
+    recorder.failOpen = true;
+    await vm.openDevice();
+    expect(vm.mode).toBe("Error");
+    recorder.failOpen = false;
+    await vm.retryDevice();
+    expect(vm.mode).toBe("Listen");
+  });
 });
 
 describe("RecorderViewModel — done mode", () => {

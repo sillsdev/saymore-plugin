@@ -64,6 +64,8 @@ export class SpyRecorder implements RecorderService {
   sampleRate = 48000;
   /** Duration (ms) the next take reports; when undefined it is derived from the buffer. */
   nextDurationMs: number | undefined = undefined;
+  /** When true, the next {@link open} rejects (simulates an unavailable device). */
+  failOpen = false;
 
   /** Ordered log of method invocations, for assertions. */
   readonly calls: string[] = [];
@@ -79,6 +81,7 @@ export class SpyRecorder implements RecorderService {
 
   async open(): Promise<void> {
     this.calls.push("open");
+    if (this.failOpen) throw new Error("SpyRecorder: device unavailable");
     // A device error persists until recover() is called (recovery polling).
     if (this.state !== "error") this.state = "open";
   }

@@ -48,6 +48,9 @@ export const TRANSLATION_SUFFIX = "_Translation.wav";
 /** The `.annotations.eaf` companion suffix (media extension is retained before it). */
 export const ANNOTATIONS_EAF_SUFFIX = ".annotations.eaf";
 
+/** Combined multichannel oral-annotation file suffix (`<media>.oralAnnotations.wav`). */
+export const ORAL_ANNOTATIONS_WAV_SUFFIX = ".oralAnnotations.wav";
+
 // ── Oral-annotation recorder (Careful Speech / Oral Translation) ──────────────
 
 /**

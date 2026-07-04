@@ -10,8 +10,11 @@ import { AnnotationDocumentStore } from "./AnnotationDocumentStore";
 import { SegmenterViewModel } from "./SegmenterViewModel";
 import { RecorderViewModel } from "./recorder/RecorderViewModel";
 import { RecordingFileStore } from "./recorder/RecordingFileStore";
+import { regenerateCombinedOralWav } from "./recorder/combinedWav";
 import type { RecorderKind } from "./recorder/recorderTypes";
-import { SpyRecorder } from "../audio/recording/Recorder";
+import { SpyRecorder, type RecorderService } from "../audio/recording/Recorder";
+import { MicRecorder } from "../audio/recording/MicRecorder";
+import type { OralAnnotationsSource } from "../audio/oralAnnotationsWav";
 import { autoSegmentToEaf, buildAutoSegmentedEafXml } from "../audio/autoSegmentToEaf";
 
 /** Which view the Annotations pane shows (plugin + harness UI; Track C consumes). */
@@ -64,6 +67,8 @@ export class ProjectStore {
   annotationsView: AnnotationsView = "segmenter";
   /** The active recorder, when {@link annotationsView} is a recorder mode. */
   recorder: RecorderViewModel | undefined = undefined;
+  /** Combined-WAV regeneration progress (0..1) while it runs on recorder exit; else undefined. */
+  combinedWavProgress: number | undefined = undefined;
 
   /**
    * State A (standalone): media is loaded (envelope ready) but has no `.eaf` yet
@@ -210,24 +215,88 @@ export class ProjectStore {
     if (!document || !oralIndex) return;
     const store = await RecordingFileStore.build(this.adapter, oralIndex, this.mediaFileName);
     const playback = new MediaElementPlaybackEngine(this.mediaUrl ?? "");
-    const recorder = new RecorderViewModel({
+    const vm = new RecorderViewModel({
       kind,
       document,
       playback,
-      recorder: new SpyRecorder(),
+      recorder: makeRecorderService(),
       store,
       adapter: this.singleFileMode ? undefined : this.adapter,
     });
     runInAction(() => {
-      this.recorder = recorder;
+      this.recorder = vm;
       this.annotationsView = kind === "Careful" ? "recorder-careful" : "recorder-translation";
     });
+    // Acquire the hot mic; failure surfaces as the VM's Error mode (never a crash).
+    void vm.openDevice();
   }
 
-  /** Leave the recorder, back to the grid. (Combined-WAV regen: merge step.) */
+  /**
+   * Leave the recorder, back to the grid, and regenerate the combined
+   * `<media>.oralAnnotations.wav` (SayMore regenerates on OK). Regeneration is
+   * best-effort and non-blocking; the store overlay is captured before the VM is
+   * disposed so the just-recorded clips are included.
+   */
   closeRecorder(): void {
+    const store = this.recorder?.store;
     this.disposeRecorder();
     this.annotationsView = "grid";
+    if (store) void this.regenerateCombined(store);
+  }
+
+  private async regenerateCombined(store: RecordingFileStore): Promise<void> {
+    const adapter = this.adapter;
+    const document = this.document;
+    if (!adapter || !document || this.singleFileMode) return;
+    const tiers = document.tiers;
+    const segments = tiers.segments.map((s, i) => ({
+      range: s.range,
+      ignored: tiers.isSegmentIgnored(i),
+      careful: store.get(s.range, "Careful"),
+      translation: store.get(s.range, "Translation"),
+    }));
+    try {
+      await regenerateCombinedOralWav({
+        adapter,
+        mediaFileName: this.mediaFileName,
+        totalDurationSec: document.durationSec,
+        segments,
+        decodeMedia: (bytes) => this.decodeMediaToSource(bytes),
+        onProgress: (fraction) => {
+          runInAction(() => {
+            this.combinedWavProgress = fraction;
+          });
+        },
+      });
+    } catch {
+      // Best-effort (mirrors the segmenter's autosave); leaving the recorder must not fail.
+    } finally {
+      runInAction(() => {
+        this.combinedWavProgress = undefined;
+      });
+    }
+  }
+
+  /** Full-PCM decode of the source media via WebAudio (undefined in non-DOM envs). */
+  private async decodeMediaToSource(bytes: Uint8Array): Promise<OralAnnotationsSource | undefined> {
+    const Ctx =
+      typeof window !== "undefined"
+        ? (window.AudioContext ??
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)
+        : undefined;
+    if (!Ctx) return undefined;
+    const ctx = new Ctx();
+    try {
+      const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      const decoded = await ctx.decodeAudioData(ab as ArrayBuffer);
+      const channels: Float32Array[] = [];
+      for (let c = 0; c < decoded.numberOfChannels; c++) channels.push(decoded.getChannelData(c));
+      return { channels, sampleRate: decoded.sampleRate };
+    } catch {
+      return undefined;
+    } finally {
+      void ctx.close().catch(() => {});
+    }
   }
 
   private disposeRecorder(): void {
@@ -294,6 +363,16 @@ export class ProjectStore {
     this.autoSegmentProgress = 0;
     this.error = undefined;
   }
+}
+
+/**
+ * The real {@link MicRecorder} when the environment can capture audio, else the
+ * scriptable {@link SpyRecorder} so node specs, CI, and non-mic hosts keep the
+ * recorder functional (the merge-step fallback).
+ */
+function makeRecorderService(): RecorderService {
+  const hasMic = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
+  return hasMic ? new MicRecorder() : new SpyRecorder();
 }
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {

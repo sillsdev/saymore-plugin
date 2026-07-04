@@ -144,6 +144,18 @@ export class RecorderViewModel {
     this.initSelection();
   }
 
+  /**
+   * Acquire the capture device (hot mic). A failure surfaces as Error mode with
+   * the recovery poll running — never a crash. Call once after construction.
+   */
+  async openDevice(): Promise<void> {
+    try {
+      await this.recorder.open();
+    } catch {
+      runInAction(() => this.enterErrorMode());
+    }
+  }
+
   /** Position the recorder on the first segment needing work (SayMore OnShown). */
   private initSelection(): void {
     this.newSegmentEndSec = this.endOfLastSegment;

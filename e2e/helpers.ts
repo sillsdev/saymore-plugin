@@ -9,7 +9,7 @@ const DB_NAME = "saymore-harness";
 export const SAMPLE_MEDIA_NAME = "ETR009_Tiny.mp3";
 export const SAMPLE_EAF_NAME = annotationsEafName(SAMPLE_MEDIA_NAME);
 
-export type Selection = "audio" | "eaf";
+export type Selection = "audio" | "eaf" | "oral";
 export type EafView = "grid" | "segmenter" | "recorder-careful" | "recorder-translation";
 
 /**
@@ -89,22 +89,52 @@ export async function writeIdbFileBytes(
   page: Page,
   name: string,
   bytes: Uint8Array,
+  opts?: { modifiedMs?: number },
 ): Promise<void> {
   await page.evaluate(
-    ({ dbName, store, fileName, data }) => {
+    ({ dbName, store, fileName, data, modifiedMs }) => {
       return new Promise<void>((resolve, reject) => {
         const openReq = indexedDB.open(dbName);
         openReq.onerror = () => reject(openReq.error);
         openReq.onsuccess = () => {
           const db = openReq.result;
           const tx = db.transaction(store, "readwrite");
-          tx.objectStore(store).put({ data: new Uint8Array(data), modifiedMs: 0 }, fileName);
+          tx.objectStore(store).put({ data: new Uint8Array(data), modifiedMs }, fileName);
           tx.oncomplete = () => resolve();
           tx.onerror = () => reject(tx.error);
         };
       });
     },
-    { dbName: DB_NAME, store: FILES_STORE, fileName: name, data: Array.from(bytes) },
+    {
+      dbName: DB_NAME,
+      store: FILES_STORE,
+      fileName: name,
+      data: Array.from(bytes),
+      modifiedMs: opts?.modifiedMs ?? 0,
+    },
+  );
+}
+
+/** The `modifiedMs` `IndexedDbAdapter.writeBytes` stamped on a file (staleness checks). */
+export async function readIdbFileModifiedMs(page: Page, name: string): Promise<number | undefined> {
+  return page.evaluate(
+    ({ dbName, store, fileName }) => {
+      return new Promise<number | undefined>((resolve, reject) => {
+        const openReq = indexedDB.open(dbName);
+        openReq.onerror = () => reject(openReq.error);
+        openReq.onsuccess = () => {
+          const db = openReq.result;
+          const tx = db.transaction(store, "readonly");
+          const getReq = tx.objectStore(store).get(fileName);
+          getReq.onsuccess = () => {
+            const rec = getReq.result as { modifiedMs?: number } | undefined;
+            resolve(rec?.modifiedMs);
+          };
+          getReq.onerror = () => reject(getReq.error);
+        };
+      });
+    },
+    { dbName: DB_NAME, store: FILES_STORE, fileName: name },
   );
 }
 
@@ -141,6 +171,80 @@ export async function holdKey(page: Page, key: string, holdMs: number): Promise<
   await page.keyboard.down(key);
   await page.waitForTimeout(holdMs);
   await page.keyboard.up(key);
+}
+
+/** Poll `listIdbFileNames` until `predicate` is satisfied, or fail after `timeoutMs`. */
+export async function waitForFiles(
+  page: Page,
+  predicate: (files: string[]) => boolean,
+  timeoutMs: number,
+): Promise<string[]> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const files = await listIdbFileNames(page);
+    if (predicate(files)) return files;
+    if (Date.now() > deadline)
+      throw new Error(`Timed out waiting for files: ${JSON.stringify(files)}`);
+    await page.waitForTimeout(150);
+  }
+}
+
+export const ANNOTATIONS_FOLDER = `${SAMPLE_MEDIA_NAME}_Annotations/`;
+export const COMBINED_WAV_NAME = `${SAMPLE_MEDIA_NAME}.oralAnnotations.wav`;
+export const RECORD_HOLD_MS = 1000;
+// MediaElementPlaybackEngine auto-stops a range once currentTime reaches its
+// end, so holding well past a segment's real length is safe — release just
+// needs to land after that auto-stop, not at any precise instant.
+export const LISTEN_SEGMENT0_HOLD_MS = 1800; // segment 0 is ~1s
+
+/**
+ * Two real segments ([0, ~1s], [~1s, ~2.5s]) via the real-time listen+Enter
+ * technique (playback always restarts from cursor 0, so the second hold must
+ * run long enough to pass the first boundary) — deterministic without any
+ * pixel math, and short enough that a push-to-talk listen-hold can reach each
+ * segment's end in a couple of seconds. Assumes the audio row is already
+ * selected with no eaf yet (see `openSample(page, { sel: "audio" })`).
+ */
+export async function createTwoRealSegments(page: Page): Promise<void> {
+  await page.getByRole("button", { name: /Use manual segmentation tool/i }).click();
+  await expect(page.getByText(/Transcription/)).toBeVisible();
+  await page.getByRole("button", { name: /Segment…/ }).click();
+  await expect(page.getByRole("button", { name: /Back to transcriptions/i })).toBeVisible();
+
+  await page.keyboard.press(" ");
+  await page.waitForTimeout(1000);
+  await page.keyboard.press("Enter");
+  await page.keyboard.press(" ");
+
+  await page.keyboard.press(" ");
+  await page.waitForTimeout(2500);
+  await page.keyboard.press("Enter");
+  await page.keyboard.press(" ");
+
+  await expect(page.getByText(/Segments: 2/)).toBeVisible();
+  await page.waitForTimeout(700); // let the debounced eaf auto-save flush
+
+  await page.getByRole("button", { name: /Back to transcriptions/i }).click();
+  await expect(page.getByText(/Transcription/)).toBeVisible();
+}
+
+/** Open the Careful Speech / Oral Translation recorder from the grid toolbar. */
+export async function openRecorder(
+  page: Page,
+  kind: "Careful Speech" | "Oral Translation",
+): Promise<void> {
+  await page.getByRole("button", { name: /Oral Annotations Tools/ }).click();
+  await page.getByRole("menuitem", { name: new RegExp(kind) }).click();
+  await expect(page.getByRole("button", { name: /Back to transcriptions/i })).toBeVisible();
+  // MicRecorder.open() (getUserMedia + AudioContext + AudioWorklet.addModule)
+  // is async; give it a moment before the first push-to-talk hold.
+  await page.waitForTimeout(500);
+}
+
+/** Listen-hold then record-hold on the current segment — the minimal armed-record flow. */
+export async function listenThenRecord(page: Page, recordHoldMs = RECORD_HOLD_MS): Promise<void> {
+  await holdKey(page, " ", LISTEN_SEGMENT0_HOLD_MS);
+  await holdKey(page, " ", recordHoldMs);
 }
 
 function escapeRegExp(s: string): string {

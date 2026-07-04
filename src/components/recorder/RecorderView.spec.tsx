@@ -21,6 +21,7 @@ function fakeVm(overrides: Partial<RecorderViewModel> = {}): RecorderViewModel {
     mode: "Listen" as SpaceBarMode,
     currentIndex: 0,
     newSegmentEndSec: 0,
+    endOfLastSegment: cells.length ? cells[cells.length - 1].range.end : 0,
     hasListenedToCurrent: false,
     isListening: false,
     isRecording: false,
@@ -28,12 +29,19 @@ function fakeVm(overrides: Partial<RecorderViewModel> = {}): RecorderViewModel {
     deviceLabel: "Spy Microphone",
     warning: undefined,
     cells,
+    // Only exercised when a cell is `annotated` — none of the fixtures below are.
+    store: { get: vi.fn(() => undefined) },
     playback: { dispose: vi.fn() },
     listenDown: vi.fn(),
     listenUp: vi.fn(),
     speakDown: vi.fn(),
     speakUp: vi.fn().mockResolvedValue(undefined),
     replayCurrentSource: vi.fn(),
+    playAnnotation: vi.fn(),
+    playSourceOf: vi.fn(),
+    eraseAnnotation: vi.fn(),
+    reRecordDown: vi.fn(),
+    reRecordUp: vi.fn().mockResolvedValue(undefined),
     abortRecording: vi.fn(),
     undo: vi.fn(),
     redo: vi.fn(),
@@ -142,5 +150,18 @@ describe("RecorderView", () => {
   it("shows the device label from the mic meter", () => {
     render(<RecorderView store={fakeStore(fakeVm({ deviceLabel: "USB Headset" }))} />);
     expect(screen.getByText("USB Headset")).toBeTruthy();
+  });
+
+  it("renders one cell per segment, and ignored cells read 'skipped'", () => {
+    const cells: SegmentCellState[] = [
+      { range: makeTimeRange(0, 1), annotated: false, ignored: false, isCurrent: true },
+      { range: makeTimeRange(1, 2), annotated: true, ignored: false, isCurrent: false },
+      { range: makeTimeRange(2, 3), annotated: false, ignored: true, isCurrent: false },
+    ];
+    render(<RecorderView store={fakeStore(fakeVm({ cells }))} />);
+    expect(screen.getByTestId("annotation-cell-0")).toBeTruthy();
+    expect(screen.getByTestId("annotation-cell-1")).toBeTruthy();
+    expect(screen.getByTestId("annotation-cell-2")).toBeTruthy();
+    expect(screen.getByText("skipped")).toBeTruthy();
   });
 });

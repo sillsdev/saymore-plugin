@@ -1,14 +1,20 @@
 /** @jsxImportSource @emotion/react */
 import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Button from "@mui/material/Button";
 import { t } from "../../l10n";
 import type { ProjectStore } from "../../state/ProjectStore";
 import type { RecorderViewModel } from "../../state/recorder/RecorderViewModel";
 import { MediaElementPlaybackEngine } from "../../audio/PlaybackEngine";
-import { WaveformSurface, type Viewport } from "../waveform/WaveformSurface";
+import {
+  WaveformSurface,
+  type Viewport,
+  type WaveformSurfaceApi,
+} from "../waveform/WaveformSurface";
+import { AnnotationCellsLayer } from "./AnnotationCellsLayer";
 import { ListenSpeakButtons } from "./ListenSpeakButtons";
+import { NewSegmentBoundaryLayer } from "./NewSegmentBoundaryLayer";
 import { PeakMeter } from "./PeakMeter";
 import { recorderKeyAction, type RecorderAction } from "./recorderKeys";
 import {
@@ -18,7 +24,7 @@ import {
 } from "../../model/SayMoreConstants";
 import { LAMETA_DARK_GREEN, LAMETA_UI_FONT } from "../../lametaTheme";
 
-/** Height reserved for the annotation cells strip; AnnotationCellsLayer (C4) fills it in. */
+/** Height of the annotation cells strip below the waveform. */
 const CELLS_ROW_HEIGHT = 72;
 
 /**
@@ -33,12 +39,31 @@ export const RecorderView = observer(function RecorderView(props: { store: Proje
   const { store } = props;
   const vm = store.recorder;
   const rootRef = useRef<HTMLDivElement>(null);
+  const surfaceRef = useRef<WaveformSurfaceApi>(null);
+  // Mirrors the waveform's live viewport so the cells strip below it stays
+  // pixel-aligned as the wave scrolls (the two rows are separate scroll
+  // regions — WaveformSurface owns the only native scrollbar). Note: this
+  // updates on scroll/zoom but not on a bare window resize.
+  const [cellsViewport, setCellsViewport] = useState<Viewport | undefined>(undefined);
 
   // Focus on mount so the keyboard model works without a click first — matters
   // most inside the lameta iframe, which starts out unfocused.
   useEffect(() => {
     rootRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    const api = surfaceRef.current;
+    if (!api) return;
+    const sync = (): void => setCellsViewport(surfaceRef.current?.getViewport());
+    sync();
+    const unsubScroll = api.onScroll(sync);
+    const unsubZoom = api.onZoom(sync);
+    return () => {
+      unsubScroll();
+      unsubZoom();
+    };
+  }, [store.envelope, vm]);
 
   // Listened on `window` (not React's onKeyDown) so Space/Esc/etc. still fire
   // even if focus has landed on a child control (e.g. after clicking a cell
@@ -155,6 +180,7 @@ export const RecorderView = observer(function RecorderView(props: { store: Proje
           `}
         >
           <WaveformSurface
+            ref={surfaceRef}
             durationSec={store.envelope?.durationSec ?? 0}
             envelope={store.envelope}
             mediaElement={mediaElement}
@@ -164,12 +190,27 @@ export const RecorderView = observer(function RecorderView(props: { store: Proje
           <div
             data-testid="recorder-cells-row"
             css={css`
+              position: relative;
               height: ${CELLS_ROW_HEIGHT}px;
+              overflow: hidden;
               background: #fafafa;
               border-top: 1px solid #b7d59b;
             `}
           >
-            {/* AnnotationCellsLayer lands in the next Track C commit (C4). */}
+            {cellsViewport && (
+              <div
+                css={css`
+                  position: relative;
+                  height: 100%;
+                `}
+                style={{
+                  width: cellsViewport.contentWidth,
+                  transform: `translateX(${-cellsViewport.scrollLeft}px)`,
+                }}
+              >
+                <AnnotationCellsLayer vm={vm} viewport={cellsViewport} height={CELLS_ROW_HEIGHT} />
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -268,6 +309,8 @@ const RecorderOverlay = observer(function RecorderOverlay(props: {
           }}
         />
       )}
+
+      <NewSegmentBoundaryLayer vm={vm} viewport={viewport} />
     </>
   );
 });

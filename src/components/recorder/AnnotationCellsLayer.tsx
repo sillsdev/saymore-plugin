@@ -8,7 +8,7 @@ import type { RecorderViewModel } from "../../state/recorder/RecorderViewModel";
 import type { Viewport } from "../waveform/WaveformSurface";
 import { layoutCells, newSegmentRect, type CellRect } from "./cellLayout";
 import { drawMiniWaveform, miniWaveformFromWav } from "./miniWaveform";
-import playIconUrl from "./icons/PlaySegment.png";
+import { PlayIcon } from "./PlayIcon";
 import rerecordIconUrl from "./icons/RerecordOralAnnotation.png";
 import eraseIconUrl from "./icons/RecordErase.png";
 
@@ -60,15 +60,24 @@ const AnnotationCell = observer(function AnnotationCell(props: {
 }) {
   const { vm, rect, height } = props;
   const cell = vm.cells[rect.index];
+  // Read during render (inside this observer component) so MobX tracks the
+  // overlay Map entry for THIS key — reading it inside the effect below,
+  // like the previous version did, happens outside any reactive context, so
+  // a re-record/erase (which changes the bytes at the same key, not the
+  // cell's annotated flag or range) never re-ran the effect and the canvas
+  // kept showing the stale clip.
+  const bytes = cell.annotated ? vm.store.get(cell.range, vm.kind) : undefined;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hovered, setHovered] = useState(false);
   const canvasWidth = Math.max(1, Math.round(rect.width));
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !cell.annotated) return;
-    const bytes = vm.store.get(cell.range, vm.kind);
-    if (!bytes) return;
+    if (!canvas) return;
+    if (!bytes) {
+      canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
     try {
       drawMiniWaveform(
         canvas,
@@ -79,7 +88,7 @@ const AnnotationCell = observer(function AnnotationCell(props: {
       // Not a decodable WAV (shouldn't happen for our own recordings) — leave
       // the cell's translucent fill without a mini-waveform rather than crash.
     }
-  }, [vm, cell.annotated, cell.range.start, cell.range.end, canvasWidth, height]);
+  }, [bytes, canvasWidth, height]);
 
   function handleErase(): void {
     if (window.confirm(t("recorder.confirmErase", "Erase this recording? This can be undone."))) {
@@ -131,7 +140,7 @@ const AnnotationCell = observer(function AnnotationCell(props: {
           onClick={() => vm.playAnnotation(rect.index)}
           css={iconButtonCss("bottom", "left")}
         >
-          <img src={playIconUrl} alt="" width={14} height={14} />
+          <PlayIcon size={12} />
         </button>
       )}
 

@@ -6,7 +6,7 @@ import { t } from "../../l10n";
 import type { RecorderViewModel } from "../../state/recorder/RecorderViewModel";
 import type { Viewport } from "../waveform/WaveformSurface";
 import { layoutCells, sameTimeRange } from "./cellLayout";
-import playIconUrl from "./icons/PlaySegment.png";
+import { PlayIcon } from "./PlayIcon";
 import undoIconUrl from "./icons/undo.png";
 
 /**
@@ -135,7 +135,7 @@ export const SourceSegmentControls = observer(function SourceSegmentControls(pro
                 }
               `}
             >
-              <img src={playIconUrl} alt="" width={14} height={14} />
+              <PlayIcon size={12} />
             </button>
           </div>
         );

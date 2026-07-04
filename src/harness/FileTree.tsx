@@ -5,16 +5,19 @@ import { t } from "../l10n";
 import type { HarnessStore } from "./HarnessStore";
 import type { SessionNode } from "./sessionTree";
 import { stubTitle } from "./stub";
+import { LAMETA_UI_FONT } from "../lametaTheme";
+import audioIconUrl from "./icons/Audio.png";
+import elanIconUrl from "./icons/ELAN.png";
 
-/** Little type-appropriate glyph standing in for SayMore's file-type icons. */
-function nodeIcon(kind: SessionNode["kind"]): string {
+/** lameta's actual file-type icons (copied from the lameta source). */
+function nodeIconUrl(kind: SessionNode["kind"]): string {
   switch (kind) {
     case "audio":
-      return "🎤";
-    case "eaf":
-      return "✂️";
     case "oral":
-      return "🎙️";
+      // Oral annotations are audio recordings → the same microphone icon.
+      return audioIconUrl;
+    case "eaf":
+      return elanIconUrl;
   }
 }
 
@@ -34,7 +37,7 @@ export const FileTree = observer(function FileTree(props: { harness: HarnessStor
         border: 1px solid #cfd8dc;
         border-radius: 4px;
         background: #fff;
-        font-family: system-ui, sans-serif;
+        font-family: ${LAMETA_UI_FONT};
         font-size: 13px;
         overflow: hidden;
       `}
@@ -68,7 +71,16 @@ export const FileTree = observer(function FileTree(props: { harness: HarnessStor
               }
             `}
           >
-            <span aria-hidden>{nodeIcon(node.kind)}</span>
+            <img
+              src={nodeIconUrl(node.kind)}
+              alt=""
+              aria-hidden
+              css={css`
+                width: 16px;
+                height: 16px;
+                object-fit: contain;
+              `}
+            />
             <span
               css={css`
                 flex: 1;

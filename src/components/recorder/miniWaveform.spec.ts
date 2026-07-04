@@ -2,7 +2,12 @@
 import { describe, it, expect } from "vitest";
 import type { Envelope } from "../../audio/EnvelopeCache";
 import { encodeWavPcm16Mono } from "../../audio/wavWriter";
-import { drawMiniWaveform, miniWaveformFromWav, miniWaveformPoints } from "./miniWaveform";
+import {
+  drawMiniWaveform,
+  miniWaveformFromWav,
+  miniWaveformPoints,
+  wavDurationSec,
+} from "./miniWaveform";
 
 function envelope(min: number[], max: number[]): Envelope {
   return {
@@ -49,6 +54,14 @@ describe("miniWaveformFromWav", () => {
     expect(points.every((p) => p.yMin >= 0 && p.yMin <= 24 && p.yMax >= 0 && p.yMax <= 24)).toBe(
       true,
     );
+  });
+});
+
+describe("wavDurationSec", () => {
+  it("reads the clip's duration from its WAV header", () => {
+    const samples = new Float32Array(48000); // 1 second at 48kHz
+    const bytes = encodeWavPcm16Mono(samples, 48000);
+    expect(wavDurationSec(bytes)).toBeCloseTo(1, 5);
   });
 });
 

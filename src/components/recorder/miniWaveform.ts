@@ -53,6 +53,11 @@ export function miniWaveformFromWav(
   return miniWaveformPoints(computeEnvelopeFromWav(bytes), width, height);
 }
 
+/** A clip's duration from its WAV header — for mapping the cell's playback cursor. */
+export function wavDurationSec(bytes: Uint8Array): number {
+  return computeEnvelopeFromWav(bytes).durationSec;
+}
+
 /**
  * Draw the filled mini-waveform polygon onto a canvas. A no-op when the
  * environment has no 2D canvas context (e.g. happy-dom in specs) or there's

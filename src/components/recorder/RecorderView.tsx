@@ -12,10 +12,12 @@ import {
   type Viewport,
   type WaveformSurfaceApi,
 } from "../waveform/WaveformSurface";
+import { PlaybackCursor } from "../waveform/PlaybackCursor";
 import { AnnotationCellsLayer } from "./AnnotationCellsLayer";
 import { ListenButton, SpeakButton } from "./ListenSpeakButtons";
 import { NewSegmentBoundaryLayer } from "./NewSegmentBoundaryLayer";
 import { PeakMeter } from "./PeakMeter";
+import { sourceCursorXPx } from "./playbackCursor";
 import { SourceSegmentControls } from "./SourceSegmentControls";
 import { recorderKeyAction, type RecorderAction } from "./recorderKeys";
 import {
@@ -384,6 +386,11 @@ const RecorderOverlay = observer(function RecorderOverlay(props: {
 
       <SourceSegmentControls vm={vm} viewport={viewport} />
       <NewSegmentBoundaryLayer vm={vm} viewport={viewport} />
+      <PlaybackCursor
+        xPx={sourceCursorXPx(vm.playback.positionSec, viewport)}
+        height={viewport.height}
+        visible={vm.playback.isPlaying}
+      />
     </>
   );
 });

@@ -10,6 +10,7 @@ import { LAMETA_DARK_BLUE, LAMETA_ORANGE } from "../../lametaTheme";
 import { t } from "../../l10n";
 import type { SegmenterViewModel } from "../../state/SegmenterViewModel";
 import type { Viewport } from "./WaveformSurface";
+import { PlaybackCursor } from "./PlaybackCursor";
 import { SegmentShading } from "./SegmentShading";
 
 interface DragState {
@@ -194,17 +195,7 @@ export const BoundaryLayer = observer(function BoundaryLayer(props: {
       })}
 
       {/* Edit cursor. */}
-      <div
-        css={css`
-          position: absolute;
-          top: 0;
-          width: 1px;
-          height: ${height}px;
-          background: #e53935;
-          pointer-events: none;
-        `}
-        style={{ left: secondsToPx(vm.editPositionSec) }}
-      />
+      <PlaybackCursor xPx={secondsToPx(vm.editPositionSec)} height={height} />
     </>
   );
 });

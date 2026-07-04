@@ -39,7 +39,10 @@ class FakeRecordingStore {
   }
 }
 
-function fakeVm(store: FakeRecordingStore): RecorderViewModel {
+function fakeVm(
+  store: FakeRecordingStore,
+  overrides: Partial<RecorderViewModel> = {},
+): RecorderViewModel {
   const cells: SegmentCellState[] = [
     { range: makeTimeRange(0, 1), annotated: true, ignored: false, isCurrent: false },
   ];
@@ -49,12 +52,15 @@ function fakeVm(store: FakeRecordingStore): RecorderViewModel {
     currentIndex: 0,
     newSegmentEndSec: 0,
     endOfLastSegment: 1,
+    isRecording: false,
     store,
+    annotationPlayback: { isPlaying: false, positionSec: 0 },
     playAnnotation: vi.fn(),
     reRecordDown: vi.fn(),
     reRecordUp: vi.fn(),
     abortRecording: vi.fn(),
     eraseAnnotation: vi.fn(),
+    ...overrides,
   };
   return vm as unknown as RecorderViewModel;
 }
@@ -101,5 +107,59 @@ describe("AnnotationCellsLayer mini-waveform staleness", () => {
     act(() => store.setBytes(undefined));
 
     expect(clearRect).toHaveBeenCalledOnce();
+  });
+});
+
+describe("AnnotationCellsLayer playback cursor + recording indicator", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("shows a clip playback cursor only while this cell's clip is playing", () => {
+    const store = new FakeRecordingStore(new Uint8Array([1]));
+    // Kept as a plain mutable object (not accessed through the RecorderViewModel
+    // type) since PlaybackEngine declares isPlaying/positionSec readonly.
+    const annotationPlayback = { isPlaying: false, positionSec: 0 };
+    const vm = fakeVm(store, { annotationPlayback } as unknown as Partial<RecorderViewModel>);
+    vi.spyOn(miniWaveform, "drawMiniWaveform").mockImplementation(() => {});
+    vi.spyOn(miniWaveform, "miniWaveformFromWav").mockReturnValue([]);
+    const { rerender } = render(
+      <AnnotationCellsLayer vm={vm} viewport={fakeViewport()} height={72} />,
+    );
+
+    expect(screen.queryByTestId("playback-cursor")).toBeNull();
+
+    act(() => screen.getByTestId("cell-play-0").click());
+    expect(vm.playAnnotation).toHaveBeenCalledWith(0);
+
+    // Clicking play doesn't itself flip isPlaying (that's the engine's job) —
+    // simulate the engine starting.
+    annotationPlayback.isPlaying = true;
+    rerender(<AnnotationCellsLayer vm={vm} viewport={fakeViewport()} height={72} />);
+    expect(screen.getByTestId("playback-cursor")).toBeTruthy();
+
+    annotationPlayback.isPlaying = false;
+    rerender(<AnnotationCellsLayer vm={vm} viewport={fakeViewport()} height={72} />);
+    expect(screen.queryByTestId("playback-cursor")).toBeNull();
+  });
+
+  it("shows the recording indicator (hiding the mini-waveform) while (re-)recording this segment, and restores it when isRecording clears (abort)", () => {
+    const store = new FakeRecordingStore(new Uint8Array([1]));
+    const vm = fakeVm(store, { isRecording: true, currentIndex: 0 });
+    vi.spyOn(miniWaveform, "drawMiniWaveform").mockImplementation(() => {});
+    vi.spyOn(miniWaveform, "miniWaveformFromWav").mockReturnValue([]);
+    const { rerender } = render(
+      <AnnotationCellsLayer vm={vm} viewport={fakeViewport()} height={72} />,
+    );
+
+    expect(screen.getByTestId("recording-indicator")).toBeTruthy();
+    expect(screen.getByTestId("annotation-cell-0").querySelector("canvas")).toBeNull();
+
+    // Abort: isRecording clears, model/bytes untouched -> old waveform is back.
+    vm.isRecording = false;
+    rerender(<AnnotationCellsLayer vm={vm} viewport={fakeViewport()} height={72} />);
+    expect(screen.queryByTestId("recording-indicator")).toBeNull();
+    expect(screen.getByTestId("annotation-cell-0").querySelector("canvas")).toBeTruthy();
   });
 });

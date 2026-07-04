@@ -11,25 +11,13 @@ import { listIdbFileNames, openSample, SAMPLE_MEDIA_NAME, writeIdbFileBytes } fr
  * that already has a Careful Speech / Oral Translation recording should warn,
  * then rename the WAV(s) to the new range — never silently orphan them).
  *
- * `test.fixme`-gated: verified empirically (ran this against the current
- * source with the assertions relaxed to just log) that TWO things don't
- * happen yet, reported to the coordinator for A/C to route:
- *
- *  1. No confirm is shown. `BoundaryLayer`'s pointer drag handlers
- *     (src/components/waveform/BoundaryLayer.tsx onBoundaryPointerUp) call
- *     `vm.moveSelectedBoundaryTo()` unconditionally — unlike the Delete-key
- *     path in ManualSegmenterView.onKeyDown, which does gate on
- *     `vm.requiresPermanenceConfirm()` + `window.confirm()`. Dragging an
- *     "immovable" (oral-annotated) boundary isn't blocked or confirmed at all.
- *  2. The rename never reaches disk. `SegmenterViewModel`'s oral-file journal
- *     (the rename/delete FileOps computed per edit) is only flushed by
- *     `save()` (src/state/SegmenterViewModel.ts) — and nothing in the running
- *     app calls `save()` today (only its own unit spec does; the debounced
- *     `scheduleAutoSave()` only rewrites the eaf XML). So even a confirmed
- *     move wouldn't rename the WAVs on disk yet — this is the same
- *     "merge step not landed" family of gap gating recorder.e2e.ts.
- *
- * Flip to `test` once both land.
+ * Was `test.fixme`-gated on two gaps found while writing this (both now
+ * fixed): (1) BoundaryLayer's drag handler didn't check
+ * `requiresPermanenceConfirm()` before moving an oral-annotated boundary
+ * (fixed in the C6 drag-confirm work); (2) the oral-file rename/delete
+ * journal was only flushed by `save()`, which nothing in the running app
+ * called (fixed in 3f94d53 — the debounced autosave now flushes the journal
+ * too). Un-gated now that both have landed.
  */
 
 const FAKE_WAV = encodeWavPcm16Mono(new Float32Array(80), 8000);
@@ -41,7 +29,7 @@ async function seedOralWav(page: Page, start: number, end: number): Promise<stri
 }
 
 test.describe("Boundary drag vs. oral-annotation permanence (csFloat rename parity)", () => {
-  test.fixme("dragging an oral-annotated boundary prompts permanence-confirm and renames its WAV", async ({
+  test("dragging an oral-annotated boundary prompts permanence-confirm and renames its WAV", async ({
     page,
   }) => {
     await openSample(page, { sel: "audio" });

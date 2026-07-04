@@ -3,7 +3,8 @@
 Real-Chromium end-to-end tests against the dev harness (`vp dev`). Complements
 `vp test` (Vitest, unit/component level) — this suite drives the actual app in
 a browser: real waveform rendering, real `<audio>` playback, real IndexedDB
-persistence, and (once wired) real `getUserMedia` mic capture.
+persistence, and real `getUserMedia` mic capture (via the fake-device flags
+below).
 
 ## Running
 
@@ -46,7 +47,7 @@ again without a second browser context).
 the `microphone` permission by default. `getUserMedia` then yields a synthetic
 tone instead of prompting for/reading a real mic — the real `MicRecorder` +
 AudioWorklet capture path runs for real against it, so `recorder.e2e.ts` is
-fully automatable once it's un-gated (no mocking needed).
+fully automatable (no mocking needed).
 
 ## Why `.e2e.ts`, not `.spec.ts`
 
@@ -70,6 +71,11 @@ test() to be called here` — two different `test()` globals colliding). The
 - `grid.e2e.ts` — editing Transcription/Free Translation cells persists
   through a reload; per-row play doesn't throw.
 - `recorder.e2e.ts` — the oral-annotation recorder (Careful Speech / Oral
-  Translation). **`test.fixme`-gated** until `ProjectStore.openRecorder` wires
-  the real `MicRecorder` in place of the `SpyRecorder` placeholder — ping from
-  the coordinator un-gates it (flip each `test.fixme` to `test`).
+  Translation): armed listen → push-to-talk record → annotated cell, a
+  too-short press, re-record/erase/undo, Oral Translation, and combined-WAV
+  regen on exit — driven with real push-to-talk (`holdKey`) against the real
+  `MicRecorder` + fake mic tone, asserted via the persisted `_Annotations/`
+  WAVs, not pixels.
+- `oralAnnotationPermanence.e2e.ts` — dragging a boundary whose segment
+  already has an oral-annotation WAV: the SayMore "permanence" confirm
+  (`window.confirm`, auto-accepted) and the csFloat WAV rename that follows.

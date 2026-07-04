@@ -39,9 +39,11 @@ async function makeVm(opts?: {
   vm: RecorderViewModel;
   adapter: InMemoryAdapter;
   playback: SpyPlaybackEngine;
+  annotationPlayback: SpyPlaybackEngine;
   recorder: SpyRecorder;
   store: RecordingFileStore;
   document: AnnotationDocumentStore;
+  revokedUrls: string[];
 }> {
   const adapter = new InMemoryAdapter();
   adapter.seed(MEDIA, new Uint8Array([1]));
@@ -60,8 +62,12 @@ async function makeVm(opts?: {
   const oralIndex = await OralAnnotationIndex.build(adapter, MEDIA);
   const store = await RecordingFileStore.build(adapter, oralIndex, MEDIA);
   const playback = new SpyPlaybackEngine();
+  const annotationPlayback = new SpyPlaybackEngine();
   const recorder = new SpyRecorder();
   await recorder.open();
+
+  let urlSeq = 0;
+  const revokedUrls: string[] = [];
 
   const vm = new RecorderViewModel({
     kind: "Careful",
@@ -71,8 +77,11 @@ async function makeVm(opts?: {
     store,
     adapter,
     encodeWav: idEncoder,
+    annotationPlayback,
+    clipUrlFactory: () => `blob:clip-${urlSeq++}`,
+    revokeClipUrl: (u) => revokedUrls.push(u),
   });
-  return { vm, adapter, playback, recorder, store, document };
+  return { vm, adapter, playback, annotationPlayback, recorder, store, document, revokedUrls };
 }
 
 /** Simulate a full press-and-hold Listen that plays the current segment to its end. */
@@ -234,6 +243,76 @@ describe("RecorderViewModel — new segment", () => {
     vm.undo();
     expect(document.tiers.segments.map((s) => s.range.end)).toEqual([1, 2, 3]);
     expect(store.has({ start: 3, end: 4 }, "Careful")).toBe(false);
+  });
+});
+
+describe("RecorderViewModel — per-cell playback / erase / re-record", () => {
+  it("playSourceOf plays the segment's source range", async () => {
+    const { vm, playback } = await makeVm();
+    vm.playSourceOf(1);
+    const call = playback.calls.at(-1);
+    expect(call?.kind).toBe("play");
+    expect(call?.range).toEqual({ start: 1, end: 2 });
+  });
+
+  it("playAnnotation plays the recorded clip via a blob URL", async () => {
+    const { vm, annotationPlayback } = await makeVm({ seedCareful: [[0, 1]] });
+    vm.playAnnotation(0);
+    const call = annotationPlayback.calls.at(-1);
+    expect(call?.kind).toBe("playSequence");
+    expect(call?.sources?.[0].url).toBe("blob:clip-0");
+  });
+
+  it("playAnnotation is a no-op for an unrecorded segment", async () => {
+    const { vm, annotationPlayback } = await makeVm();
+    vm.playAnnotation(0);
+    expect(annotationPlayback.calls).toHaveLength(0);
+  });
+
+  it("erase removes the clip (undoable) and makes that segment current", async () => {
+    const { vm, store } = await makeVm({ seedCareful: [[0, 1]] });
+    expect(vm.currentIndex).toBe(1); // 0 already annotated at start
+    vm.eraseAnnotation(0);
+    expect(store.has({ start: 0, end: 1 }, "Careful")).toBe(false);
+    expect(vm.currentIndex).toBe(0);
+    vm.undo();
+    expect(store.has({ start: 0, end: 1 }, "Careful")).toBe(true);
+  });
+
+  it("re-record overwrites the clip without advancing; undo restores the backup", async () => {
+    const { vm, recorder, store } = await makeVm({ seedCareful: [[0, 1]] });
+    const original = store.get({ start: 0, end: 1 }, "Careful");
+    const replacement = samplesOfMs(700);
+    recorder.setNextRecording(replacement);
+
+    vm.reRecordDown(0);
+    expect(vm.isRecording).toBe(true);
+    expect(vm.currentIndex).toBe(0);
+    await vm.reRecordUp(0);
+
+    expect(vm.currentIndex).toBe(0); // no advance on re-record
+    expect(store.get({ start: 0, end: 1 }, "Careful")).toEqual(idEncoder(replacement));
+    vm.undo();
+    expect(store.get({ start: 0, end: 1 }, "Careful")).toEqual(original);
+  });
+
+  it("too-short re-record keeps the backup and warns", async () => {
+    const { vm, recorder, store } = await makeVm({ seedCareful: [[0, 1]] });
+    const original = store.get({ start: 0, end: 1 }, "Careful");
+    recorder.setNextRecording(samplesOfMs(200));
+
+    vm.reRecordDown(0);
+    await vm.reRecordUp(0);
+
+    expect(vm.warning).toContain("Whoops");
+    expect(store.get({ start: 0, end: 1 }, "Careful")).toEqual(original);
+  });
+
+  it("revokes the clip blob URL on dispose", async () => {
+    const { vm, revokedUrls } = await makeVm({ seedCareful: [[0, 1]] });
+    vm.playAnnotation(0);
+    vm.dispose();
+    expect(revokedUrls).toContain("blob:clip-0");
   });
 });
 

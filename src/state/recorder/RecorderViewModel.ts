@@ -1,7 +1,8 @@
 import { makeAutoObservable, runInAction } from "mobx";
-import type { PlaybackEngine } from "../../audio/PlaybackEngine";
+import { MediaElementPlaybackEngine, type PlaybackEngine } from "../../audio/PlaybackEngine";
 import type { RecorderService } from "../../audio/recording/Recorder";
 import { encodeWavPcm16Mono } from "../../audio/wavWriter";
+import { decodeWav } from "../../audio/wavCodec";
 import type { FileSystemAdapter } from "../../fs/FileSystemAdapter";
 import type { AnnotationSegment } from "../../model/AnnotationSegment";
 import { BoundaryResult } from "../../model/BoundaryRules";
@@ -37,6 +38,12 @@ export interface RecorderDeps {
   adapter?: FileSystemAdapter;
   /** WAV encoder (defaults to the Track B PCM16 mono encoder). */
   encodeWav?: WavEncoder;
+  /** Playback engine for recorded clips (own blob-URL MediaElement per plan). */
+  annotationPlayback?: PlaybackEngine;
+  /** Blob-URL factory for a clip's bytes (spec seam; default uses URL.createObjectURL). */
+  clipUrlFactory?: (bytes: Uint8Array) => string;
+  /** Revoker paired with {@link clipUrlFactory}. */
+  revokeClipUrl?: (url: string) => void;
 }
 
 /** Debounce before an edit is auto-persisted to the eaf (matches the segmenter). */
@@ -59,10 +66,15 @@ export class RecorderViewModel {
   readonly playback: PlaybackEngine;
   readonly recorder: RecorderService;
   readonly store: RecordingFileStore;
+  /** Playback engine for recorded clips (separate from the source `playback`). */
+  readonly annotationPlayback: PlaybackEngine;
   readonly undoStack = new UndoStack();
   private readonly adapter?: FileSystemAdapter;
   private readonly encodeWav: WavEncoder;
+  private readonly clipUrlFactory?: (bytes: Uint8Array) => string;
+  private readonly revokeClipUrl?: (url: string) => void;
   private readonly disposeError: () => void;
+  private currentClipUrl: string | undefined = undefined;
 
   mode: SpaceBarMode = "Listen";
   /** The segment being worked on, or "new" for the unsegmented remainder. */
@@ -76,6 +88,7 @@ export class RecorderViewModel {
   warning: string | undefined = undefined;
 
   private segmentBeingRecorded: TimeRange | undefined = undefined;
+  private reRecording = false;
   private warningTimer: ReturnType<typeof setTimeout> | undefined;
   private autoSaveTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -85,8 +98,11 @@ export class RecorderViewModel {
     this.playback = deps.playback;
     this.recorder = deps.recorder;
     this.store = deps.store;
+    this.annotationPlayback = deps.annotationPlayback ?? new MediaElementPlaybackEngine("");
     this.adapter = deps.adapter;
     this.encodeWav = deps.encodeWav ?? encodeWavPcm16Mono;
+    this.clipUrlFactory = deps.clipUrlFactory;
+    this.revokeClipUrl = deps.revokeClipUrl;
     this.disposeError = deps.recorder.onError(() => {
       runInAction(() => this.enterErrorMode());
     });
@@ -94,8 +110,12 @@ export class RecorderViewModel {
       RecorderViewModel,
       | "adapter"
       | "encodeWav"
+      | "clipUrlFactory"
+      | "revokeClipUrl"
       | "disposeError"
+      | "currentClipUrl"
       | "segmentBeingRecorded"
+      | "reRecording"
       | "warningTimer"
       | "autoSaveTimer"
     >(this, {
@@ -103,11 +123,16 @@ export class RecorderViewModel {
       playback: false,
       recorder: false,
       store: false,
+      annotationPlayback: false,
       undoStack: false,
       adapter: false,
       encodeWav: false,
+      clipUrlFactory: false,
+      revokeClipUrl: false,
       disposeError: false,
+      currentClipUrl: false,
       segmentBeingRecorded: false,
+      reRecording: false,
       warningTimer: false,
       autoSaveTimer: false,
     });
@@ -287,12 +312,86 @@ export class RecorderViewModel {
     this.advanceAfterRecording();
   }
 
-  /** Esc: abort an in-progress take (no write, no advance). */
+  /** Esc: abort an in-progress take (no write, no advance; re-record leaves the old clip). */
   abortRecording(): void {
     if (!this.isRecording) return;
     this.recorder.abortRecording();
     this.isRecording = false;
+    this.reRecording = false;
     this.segmentBeingRecorded = undefined;
+  }
+
+  // ── Per-cell actions (re-record / erase / playback) ─────────────────────────
+  /** Play a recorded clip (its own blob-URL playback engine). */
+  playAnnotation(i: number): void {
+    const seg = this.segments[i];
+    if (!seg) return;
+    const bytes = this.store.get(seg.range, this.kind);
+    if (!bytes) return;
+    this.playback.stop();
+    this.annotationPlayback.stop();
+    this.revokeCurrentClip();
+    this.currentClipUrl = this.makeClipUrl(bytes);
+    const dur = this.clipDurationSec(bytes, seg.range.end - seg.range.start);
+    void this.annotationPlayback.playSequence([
+      { range: makeTimeRange(0, dur), url: this.currentClipUrl },
+    ]);
+  }
+
+  /** Play a segment's SOURCE range on the main media. */
+  playSourceOf(i: number): void {
+    const seg = this.segments[i];
+    if (!seg) return;
+    this.annotationPlayback.stop();
+    void this.playback.play(seg.range);
+  }
+
+  /** Erase a segment's recording (undoable); that segment becomes current again. */
+  eraseAnnotation(i: number): void {
+    const seg = this.segments[i];
+    if (!seg || !this.store.has(seg.range, this.kind)) return;
+    this.annotationPlayback.stop();
+    const mutation = this.store.eraseRecording(seg.range, this.kind);
+    this.undoStack.do({
+      label: t("recorder.cmd.erase", "Erase annotation"),
+      apply: () => mutation.apply(),
+      revert: () => mutation.revert(),
+    });
+    this.hasListenedToCurrent = false;
+    this.currentIndex = "new";
+    this.setNextCurrent();
+    this.mode = this.isFullyAnnotated ? "Done" : "Listen";
+  }
+
+  /** Press-and-hold re-record on a specific cell. The old clip is the backup. */
+  reRecordDown(i: number): void {
+    const seg = this.segments[i];
+    if (!seg || this.isRecording || this.recorder.state !== "open") return;
+    this.playback.stop();
+    this.annotationPlayback.stop();
+    this.currentIndex = i;
+    this.reRecording = true;
+    this.recorder.beginRecording();
+    this.isRecording = true;
+    this.segmentBeingRecorded = seg.range;
+    this.clearWarning();
+  }
+
+  /** Release re-record: overwrite on success; too-short/abort leaves the backup intact. */
+  async reRecordUp(_i: number): Promise<void> {
+    if (!this.isRecording || !this.reRecording) return;
+    const range = this.segmentBeingRecorded;
+    const result = this.stopRecorderSafely();
+    this.isRecording = false;
+    this.reRecording = false;
+    this.segmentBeingRecorded = undefined;
+    if (!result || !range) return;
+    if (result.durationMs < MIN_SEGMENT_LENGTH_MS) {
+      this.flashTooShort(); // old clip stays (never overwritten)
+      return;
+    }
+    const bytes = this.encodeWav(result.samples, result.sampleRate);
+    this.commitRecording(range, bytes); // overwrite; undo restores the backup. No advance.
   }
 
   // ── Selection / new-segment boundary ────────────────────────────────────────
@@ -354,11 +453,43 @@ export class RecorderViewModel {
     this.disposeError();
     if (this.warningTimer) clearTimeout(this.warningTimer);
     if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
+    this.revokeCurrentClip();
+    this.annotationPlayback.dispose();
     this.playback.dispose();
     this.recorder.close();
   }
 
   // ── Internals ────────────────────────────────────────────────────────────────
+  private makeClipUrl(bytes: Uint8Array): string {
+    if (this.clipUrlFactory) return this.clipUrlFactory(bytes);
+    if (typeof URL !== "undefined" && URL.createObjectURL) {
+      const copy = new Uint8Array(bytes.byteLength);
+      copy.set(bytes);
+      return URL.createObjectURL(new Blob([copy.buffer], { type: "audio/wav" }));
+    }
+    return "";
+  }
+
+  private revokeCurrentClip(): void {
+    const url = this.currentClipUrl;
+    if (!url) return;
+    this.currentClipUrl = undefined;
+    if (this.revokeClipUrl) this.revokeClipUrl(url);
+    else if (typeof URL !== "undefined" && URL.revokeObjectURL) URL.revokeObjectURL(url);
+  }
+
+  /** Clip duration from the WAV header; falls back when bytes aren't a decodable WAV. */
+  private clipDurationSec(bytes: Uint8Array, fallbackSec: number): number {
+    try {
+      const { channels, sampleRate } = decodeWav(bytes);
+      const frames = channels[0]?.length ?? 0;
+      if (frames > 0 && sampleRate > 0) return frames / sampleRate;
+    } catch {
+      /* not a decodable WAV (e.g. spec fixtures) */
+    }
+    return fallbackSec;
+  }
+
   private stopRecorderSafely(): ReturnType<RecorderService["stopRecording"]> | undefined {
     try {
       return this.recorder.stopRecording();

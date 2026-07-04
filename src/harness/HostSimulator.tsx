@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { t } from "../l10n";
 import type { ProjectStore } from "../state/ProjectStore";
 import { StartAnnotatingView } from "../components/shell/StartAnnotatingView";
-import { ManualSegmenterView } from "../components/segmenter/ManualSegmenterView";
 import { HarnessStore } from "./HarnessStore";
 import { FileTree } from "./FileTree";
 import { AnnotationsTabView } from "./AnnotationsTabView";
@@ -25,28 +24,6 @@ export const HostSimulator = observer(function HostSimulator(props: { store: Pro
   useEffect(() => {
     void harness.init();
   }, [harness]);
-
-  // The real manual segmenter takes over the viewport; give a way back to the grid.
-  if (harness.selection === "eaf" && harness.eafView === "segmenter" && store.segmenter) {
-    return (
-      <div>
-        <div css={backBarCss}>
-          <button type="button" onClick={() => harness.showGrid()} css={backButtonCss}>
-            ← {t("harness.backToGrid", "Back to Annotations")}
-          </button>
-          <span
-            css={css`
-              font-size: 13px;
-              color: #607d8b;
-            `}
-          >
-            {store.mediaFileName}
-          </span>
-        </div>
-        <ManualSegmenterView store={store} />
-      </div>
-    );
-  }
 
   return (
     <div
@@ -195,22 +172,6 @@ const panelCss = css`
 const hintCss = css`
   color: #78909c;
   font-size: 14px;
-`;
-const backBarCss = css`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 10px;
-  background: #eceff1;
-  border-bottom: 1px solid #cfd8dc;
-`;
-const backButtonCss = css`
-  padding: 3px 10px;
-  font-size: 13px;
-  border: 1px solid #90a4ae;
-  border-radius: 3px;
-  background: #fff;
-  cursor: pointer;
 `;
 const primaryButtonCss = css`
   padding: 6px 14px;

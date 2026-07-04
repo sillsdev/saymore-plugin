@@ -28,8 +28,12 @@ function downloadText(fileName: string, text: string): void {
  */
 export const ManualSegmenterView = observer(function ManualSegmenterView(props: {
   store: ProjectStore;
+  /** Root height. Defaults to the full viewport (embedded tab); the host
+   * simulator passes a bounded height so it sits inside the Annotations pane. */
+  height?: string;
 }) {
   const { store } = props;
+  const height = props.height ?? "100vh";
   const vm = store.segmenter!;
   const surfaceRef = useRef<WaveformSurfaceApi>(null);
 
@@ -142,7 +146,7 @@ export const ManualSegmenterView = observer(function ManualSegmenterView(props: 
         outline: none;
         display: flex;
         flex-direction: column;
-        height: 100vh;
+        height: ${height};
         font-family: system-ui, sans-serif;
       `}
       ref={(el) => el?.focus()}

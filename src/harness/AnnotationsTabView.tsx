@@ -4,13 +4,15 @@ import { observer } from "mobx-react-lite";
 import { t } from "../l10n";
 import type { HarnessStore } from "./HarnessStore";
 import { TranscriptionGrid } from "./TranscriptionGrid";
+import { ManualSegmenterView } from "../components/segmenter/ManualSegmenterView";
 import { StubButton, stubTitle } from "./stub";
 
 /**
  * The "Annotations" tab a SayMore `.eaf` selection shows (reference screenshot 2):
  * a green toolbar strip over the transcription grid. Only "Segment…" is wired —
- * it opens the real manual segmenter; the zoom dropdown, Oral Annotations Tools,
- * Export and help are stubs.
+ * it flips the tab into a **segment mode** that hosts the REAL manual segmenter
+ * in-place (with a "Back to transcriptions" affordance), so we never leave the
+ * simulator; the zoom dropdown, Oral Annotations Tools, Export and help are stubs.
  */
 export const AnnotationsTabView = observer(function AnnotationsTabView(props: {
   harness: HarnessStore;
@@ -34,6 +36,73 @@ export const AnnotationsTabView = observer(function AnnotationsTabView(props: {
         {t("annotations.tab", "Annotations")}
       </div>
 
+      {harness.eafView === "segmenter" ? (
+        <SegmentMode harness={harness} />
+      ) : (
+        <GridMode harness={harness} />
+      )}
+    </div>
+  );
+});
+
+/** Segment mode: the real manual segmenter in-place, framed by the tab. */
+const SegmentMode = observer(function SegmentMode(props: { harness: HarnessStore }) {
+  const { harness } = props;
+  return (
+    <div
+      css={css`
+        border: 1px solid #b7d59b;
+      `}
+    >
+      <div
+        css={css`
+          display: flex;
+          align-items: center;
+          padding: 6px 10px;
+          background: #eaf3e0;
+          border-bottom: 1px solid #b7d59b;
+        `}
+      >
+        <button
+          type="button"
+          onClick={() => harness.showGrid()}
+          css={css`
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 10px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #33691e;
+            background: #fff;
+            border: 1px solid #b7d59b;
+            border-radius: 3px;
+            cursor: pointer;
+          `}
+        >
+          ← {t("annotations.backToTranscriptions", "Back to transcriptions")}
+        </button>
+      </div>
+      {harness.projectStore.segmenter ? (
+        <ManualSegmenterView store={harness.projectStore} height="70vh" />
+      ) : (
+        <p
+          css={css`
+            padding: 12px;
+          `}
+        >
+          {t("harness.loading", "Loading…")}
+        </p>
+      )}
+    </div>
+  );
+});
+
+/** Grid mode: the green toolbar over the transcription grid. */
+const GridMode = observer(function GridMode(props: { harness: HarnessStore }) {
+  const { harness } = props;
+  return (
+    <div>
       <div
         css={css`
           display: flex;

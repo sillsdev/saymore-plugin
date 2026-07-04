@@ -128,7 +128,7 @@ const Header = observer(function Header(props: { harness: HarnessStore }) {
           margin: 0;
         `}
       >
-        {t("harness.title", "SayMore host simulator")}
+        {t("harness.title", "SayMore Annotation Plugin Harness")}
       </h1>
       <span
         css={css`

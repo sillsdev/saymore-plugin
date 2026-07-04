@@ -40,6 +40,9 @@ export class HarnessStore {
   selection: Selection | undefined;
   eafView: EafView = "grid";
 
+  /** Guards against React StrictMode's double-mount running init() twice. */
+  private started = false;
+
   constructor(projectStore: ProjectStore) {
     this.projectStore = projectStore;
     makeAutoObservable(this, {
@@ -62,6 +65,8 @@ export class HarnessStore {
 
   // ── bootstrap ──────────────────────────────────────────────────────────────
   async init(): Promise<void> {
+    if (this.started) return;
+    this.started = true;
     const url = readHarnessUrlState();
     runInAction(() => {
       this.source = url.src;

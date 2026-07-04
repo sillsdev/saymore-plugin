@@ -4,6 +4,7 @@ import {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -35,13 +36,21 @@ export interface Viewport {
  * THIS (not wavesurfer directly), so the renderer can be swapped for a
  * viewport-windowed custom canvas without touching the overlay or tools.
  */
+/** Keep `time` pinned at `viewportX` (px from the pane's left) across a zoom. */
+export interface ZoomAnchor {
+  time: number;
+  viewportX: number;
+}
+
 export interface WaveformSurfaceApi {
   secondsToPx(seconds: number): number;
   pxToSeconds(px: number): number;
-  setZoom(minPxPerSec: number): void;
+  setZoom(minPxPerSec: number, anchor?: ZoomAnchor): void;
   scrollToSeconds(seconds: number): void;
   onScroll(cb: (scrollLeftPx: number) => void): () => void;
   onZoom(cb: (minPxPerSec: number) => void): () => void;
+  /** The scroller's viewport rect, for hit-testing the mouse against the wave. */
+  getScrollerRect(): DOMRect | undefined;
   getViewport(): Viewport;
 }
 
@@ -77,6 +86,7 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
     const wsRef = useRef<WaveSurfer | null>(null);
     const minPxRef = useRef<number>(props.minPxPerSec ?? 80);
     const readyRef = useRef(false);
+    const pendingAnchorRef = useRef<ZoomAnchor | null>(null);
     const scrollSubs = useRef(new Set<(px: number) => void>());
     const zoomSubs = useRef(new Set<(px: number) => void>());
 
@@ -160,6 +170,16 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
       };
     }, [mediaElement, mediaUrl, durationSec]);
 
+    // After a zoom changes the content width, pin the anchor time back under the
+    // same viewport x (runs before paint, so there's no visible jump).
+    useLayoutEffect(() => {
+      const anchor = pendingAnchorRef.current;
+      const root = rootRef.current;
+      if (!anchor || !root) return;
+      pendingAnchorRef.current = null;
+      root.scrollLeft = anchor.time * pxPerSec - anchor.viewportX;
+    }, [pxPerSec, contentWidth]);
+
     const secondsToPx = (seconds: number): number => seconds * pxPerSec;
     const pxToSeconds = (px: number): number => (pxPerSec > 0 ? px / pxPerSec : 0);
 
@@ -183,8 +203,9 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
       (): WaveformSurfaceApi => ({
         secondsToPx,
         pxToSeconds,
-        setZoom: (minPxPerSec: number) => {
+        setZoom: (minPxPerSec: number, anchor?: ZoomAnchor) => {
           minPxRef.current = minPxPerSec;
+          pendingAnchorRef.current = anchor ?? null;
           recompute();
           zoomSubs.current.forEach((cb) => cb(minPxPerSec));
         },
@@ -200,6 +221,7 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
           zoomSubs.current.add(cb);
           return () => zoomSubs.current.delete(cb);
         },
+        getScrollerRect: () => rootRef.current?.getBoundingClientRect(),
         getViewport: () => viewport,
       }),
       [pxPerSec, scrollLeft, contentWidth],

@@ -6,7 +6,11 @@ import { t } from "../../l10n";
 import { NUDGE_MS } from "../../model/SayMoreConstants";
 import { MediaElementPlaybackEngine } from "../../audio/PlaybackEngine";
 import type { ProjectStore } from "../../state/ProjectStore";
-import { WaveformSurface, type WaveformSurfaceApi } from "../waveform/WaveformSurface";
+import {
+  WaveformSurface,
+  type WaveformSurfaceApi,
+  type ZoomAnchor,
+} from "../waveform/WaveformSurface";
 import { BoundaryLayer } from "../waveform/BoundaryLayer";
 import { SegmenterToolbar } from "./SegmenterToolbar";
 
@@ -28,10 +32,32 @@ export const ManualSegmenterView = observer(function ManualSegmenterView(props: 
   const vm = store.segmenter!;
   const surfaceRef = useRef<WaveformSurfaceApi>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  // Anchor for the NEXT zoom (set by Ctrl+wheel when the mouse is over the wave);
+  // otherwise the default anchor keeps the selected boundary / center in view.
+  const pendingZoomAnchorRef = useRef<ZoomAnchor | undefined>(undefined);
 
-  // Push zoom changes into the renderer.
+  // The anchor used when a zoom wasn't initiated by a mouse position: pin the
+  // selected boundary (else the current viewport center) at the pane center.
+  function defaultZoomAnchor(api: WaveformSurfaceApi): ZoomAnchor {
+    const rect = api.getScrollerRect();
+    const vp = api.getViewport();
+    const centerX = rect ? rect.width / 2 : 0;
+    const k = vm.selectedBoundaryIndex;
+    if (k >= 0 && vm.segments[k]) return { time: vm.segments[k].range.end, viewportX: centerX };
+    return {
+      time: vp.pxPerSec > 0 ? (vp.scrollLeft + centerX) / vp.pxPerSec : 0,
+      viewportX: centerX,
+    };
+  }
+
+  // Push zoom changes into the renderer, re-anchoring the scroll so the point of
+  // interest stays put.
   useEffect(() => {
-    surfaceRef.current?.setZoom(vm.minPxPerSec);
+    const api = surfaceRef.current;
+    if (!api) return;
+    const anchor = pendingZoomAnchorRef.current ?? defaultZoomAnchor(api);
+    pendingZoomAnchorRef.current = undefined;
+    api.setZoom(vm.minPxPerSec, anchor);
   }, [vm.minPxPerSec]);
 
   // Focus on mount so the keyboard model works without a click.
@@ -40,13 +66,31 @@ export const ManualSegmenterView = observer(function ManualSegmenterView(props: 
   }, []);
 
   // Ctrl + mouse-wheel zooms the waveform (a non-passive listener so we can
-  // preventDefault the browser's page-zoom gesture).
+  // preventDefault the browser's page-zoom gesture). When the mouse is over the
+  // waveform, anchor the zoom at the time under the cursor so it stays in view.
   useEffect(() => {
     const el = rootRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
+      const api = surfaceRef.current;
+      const rect = api?.getScrollerRect();
+      if (
+        api &&
+        rect &&
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom
+      ) {
+        const vp = api.getViewport();
+        const viewportX = e.clientX - rect.left;
+        pendingZoomAnchorRef.current = {
+          time: vp.pxPerSec > 0 ? (vp.scrollLeft + viewportX) / vp.pxPerSec : 0,
+          viewportX,
+        };
+      }
       if (e.deltaY < 0) vm.zoomIn();
       else vm.zoomOut();
     };

@@ -8,8 +8,8 @@ import { App } from "./App";
 describe("App shell", () => {
   it("renders the host simulator as the standalone root", () => {
     render(<App />);
-    // The simulator header shows immediately, before the (async, IndexedDB-backed)
+    // The harness header shows immediately, before the (async, IndexedDB-backed)
     // session load resolves — so this holds even where IndexedDB is unavailable.
-    expect(screen.getByText(/host simulator/i)).toBeTruthy();
+    expect(screen.getByText(/harness/i)).toBeTruthy();
   });
 });

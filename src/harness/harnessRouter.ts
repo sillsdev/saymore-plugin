@@ -1,13 +1,23 @@
+import type { AnnotationsView } from "../state/ProjectStore";
+
 /**
  * The host simulator's context lives in the URL query string so a refresh (or a
  * shared link) lands back in the same place: which session source, which file is
  * selected, and which view is showing. Deliberately tiny — no router library.
  *
- *   ?src=sample|folder & sel=audio|eaf & view=grid|segmenter
+ *   ?src=sample|folder & sel=audio|eaf & view=grid|segmenter|recorder-careful|recorder-translation
  */
 export type SessionSource = "sample" | "folder";
 export type Selection = "audio" | "eaf";
-export type EafView = "grid" | "segmenter";
+/** Same shape as `ProjectStore.annotationsView` — the harness round-trips it through the URL. */
+export type EafView = AnnotationsView;
+
+const EAF_VIEWS: readonly EafView[] = [
+  "grid",
+  "segmenter",
+  "recorder-careful",
+  "recorder-translation",
+];
 
 export interface HarnessUrlState {
   src: SessionSource;
@@ -30,7 +40,10 @@ export function readHarnessUrlState(): HarnessUrlState {
   const selParam = params.get("sel");
   const sel: Selection | undefined =
     selParam === "audio" || selParam === "eaf" ? selParam : undefined;
-  const view: EafView = params.get("view") === "segmenter" ? "segmenter" : "grid";
+  const viewParam = params.get("view");
+  const view: EafView = (EAF_VIEWS as readonly string[]).includes(viewParam ?? "")
+    ? (viewParam as EafView)
+    : "grid";
   return { src, sel, view };
 }
 

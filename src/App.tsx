@@ -6,6 +6,7 @@ import { ProjectStore } from "./state/ProjectStore";
 import { OpenScreen } from "./components/shell/OpenScreen";
 import { StartAnnotatingView } from "./components/shell/StartAnnotatingView";
 import { ManualSegmenterView } from "./components/segmenter/ManualSegmenterView";
+import { AnnotationsPaneView } from "./components/annotations/AnnotationsPaneView";
 import { ErrorBoundary } from "./components/shell/ErrorBoundary";
 import { LAMETA_UI_FONT } from "./lametaTheme";
 import {
@@ -130,12 +131,13 @@ export const App = observer(function App() {
   // The hidden provider instance has no UI — it only answers getTabs.
   if (providerMode) return null;
 
-  // Embedded plugin path (unchanged): the segmenter, State A, or a connecting notice.
+  // Embedded plugin path: the Annotations pane (toolbar + grid, flipping to the
+  // segmenter/recorders), State A, or a connecting notice.
   if (embedded) {
     return (
       <ErrorBoundary>
         {store.segmenter ? (
-          <ManualSegmenterView store={store} />
+          <AnnotationsPaneView store={store} />
         ) : startMediaName ? (
           <StartAnnotatingView
             mediaFileName={startMediaName}

@@ -38,7 +38,6 @@ export class HarnessStore {
 
   files: string[] = [];
   selection: Selection | undefined;
-  eafView: EafView = "grid";
 
   /** Guards against React StrictMode's double-mount running init() twice. */
   private started = false;
@@ -63,6 +62,11 @@ export class HarnessStore {
     return this.tree.eafName !== undefined;
   }
 
+  /** Which view the Annotations pane shows — proxies the real ProjectStore field. */
+  get eafView(): EafView {
+    return this.projectStore.annotationsView;
+  }
+
   // ── bootstrap ──────────────────────────────────────────────────────────────
   async init(): Promise<void> {
     if (this.started) return;
@@ -70,7 +74,6 @@ export class HarnessStore {
     const url = readHarnessUrlState();
     runInAction(() => {
       this.source = url.src;
-      this.eafView = url.view;
     });
     try {
       if (url.src === "folder") {
@@ -101,13 +104,28 @@ export class HarnessStore {
   private async restoreSelection(sel: Selection | undefined, view: EafView): Promise<void> {
     if (sel === "eaf" && this.hasEaf) {
       await this.selectEaf();
-      runInAction(() => {
-        this.eafView = view;
-      });
+      this.applyView(view);
     } else if (sel === "audio" || (sel === "eaf" && !this.hasEaf)) {
       await this.selectAudio();
     }
     this.syncUrl();
+  }
+
+  /** Drive `ProjectStore.annotationsView` to a URL-restored value. */
+  private applyView(view: EafView): void {
+    switch (view) {
+      case "segmenter":
+        this.projectStore.showSegmenter();
+        return;
+      case "recorder-careful":
+        this.projectStore.openRecorder("Careful");
+        return;
+      case "recorder-translation":
+        this.projectStore.openRecorder("Translation");
+        return;
+      case "grid":
+        this.projectStore.showGrid();
+    }
   }
 
   // ── session sources ──────────────────────────────────────────────────────
@@ -178,7 +196,6 @@ export class HarnessStore {
     await this.startSample(true);
     runInAction(() => {
       this.selection = undefined;
-      this.eafView = "grid";
     });
     await this.selectAudio();
   }
@@ -216,11 +233,13 @@ export class HarnessStore {
     if (!adapter || !this.hasEaf) return;
     runInAction(() => {
       this.selection = "eaf";
-      this.eafView = "grid";
       this.busy = true;
     });
     await this.projectStore.openSession(adapter);
     runInAction(() => {
+      // openSession resets the ProjectStore (annotationsView defaults to
+      // "segmenter"); the harness's own eaf selection always starts at the grid.
+      this.projectStore.showGrid();
       this.busy = false;
     });
     this.syncUrl();
@@ -232,22 +251,18 @@ export class HarnessStore {
     await this.refreshTree();
     runInAction(() => {
       this.selection = "eaf";
-      this.eafView = "grid";
+      this.projectStore.showGrid();
     });
     this.syncUrl();
   }
 
   showSegmenter(): void {
-    runInAction(() => {
-      this.eafView = "segmenter";
-    });
+    this.projectStore.showSegmenter();
     this.syncUrl();
   }
 
   showGrid(): void {
-    runInAction(() => {
-      this.eafView = "grid";
-    });
+    this.projectStore.showGrid();
     this.syncUrl();
   }
 
@@ -260,23 +275,6 @@ export class HarnessStore {
   async runAuto(onProgress: (fraction: number) => void): Promise<void> {
     await this.projectStore.autoSegment(onProgress);
     await this.onEafCreated();
-  }
-
-  // ── grid editing ────────────────────────────────────────────────────────────
-  /** Persist a transcription / free-translation edit straight to the eaf, the way
-   * SayMore saves on cell change. Goes through the DOM-preserving document store. */
-  async saveCell(
-    index: number,
-    field: "transcription" | "freeTranslation",
-    text: string,
-  ): Promise<void> {
-    const doc = this.projectStore.document;
-    const adapter = this.adapter;
-    if (!doc || !adapter) return;
-    if (field === "transcription") doc.tiers.setTranscription(index, text);
-    else doc.tiers.setFreeTranslation(index, text);
-    doc.bumpVersion();
-    await doc.save(adapter);
   }
 
   get eafName(): string | undefined {

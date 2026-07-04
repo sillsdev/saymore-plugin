@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
 import Button from "@mui/material/Button";
-import { t } from "../l10n";
+import { t } from "../../l10n";
 
 /**
- * Host-simulator convention for a control that mirrors a real SayMore feature we
- * haven't built yet: it stays **visible but inert** — disabled, dimmed, and
- * carrying a "Not implemented yet" tooltip — so the simulated UI reads like the
- * real thing without pretending the button works. One helper keeps every stub
+ * Convention for a control that mirrors a real SayMore feature we haven't
+ * built yet: it stays **visible but inert** — disabled, dimmed, and carrying a
+ * "Not implemented yet" tooltip — so the simulated UI reads like the real
+ * thing without pretending the button works. One helper keeps every stub
  * consistent.
  */
 export function stubTitle(feature?: string): string {

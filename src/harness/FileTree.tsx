@@ -4,7 +4,7 @@ import { observer } from "mobx-react-lite";
 import { t } from "../l10n";
 import type { HarnessStore } from "./HarnessStore";
 import type { SessionNode } from "./sessionTree";
-import { stubTitle } from "./stub";
+import { stubTitle } from "../components/shell/stub";
 import { LAMETA_UI_FONT } from "../lametaTheme";
 import audioIconUrl from "./icons/Audio.png";
 import elanIconUrl from "./icons/ELAN.png";

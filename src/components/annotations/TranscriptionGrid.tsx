@@ -3,10 +3,10 @@ import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
 import { useState } from "react";
 import IconButton from "@mui/material/IconButton";
-import { t } from "../l10n";
-import type { HarnessStore } from "./HarnessStore";
-import { StubButton } from "./stub";
-import { LAMETA_UI_FONT } from "../lametaTheme";
+import { t } from "../../l10n";
+import type { ProjectStore } from "../../state/ProjectStore";
+import { StubButton } from "../shell/stub";
+import { LAMETA_UI_FONT } from "../../lametaTheme";
 
 /**
  * First real slice of the SayMore transcription grid (reference screenshot 2):
@@ -17,11 +17,11 @@ import { LAMETA_UI_FONT } from "../lametaTheme";
  * styling, fonts, keyboard nav) is out of scope for this first slice.
  */
 export const TranscriptionGrid = observer(function TranscriptionGrid(props: {
-  harness: HarnessStore;
+  store: ProjectStore;
 }) {
-  const { harness } = props;
-  const doc = harness.projectStore.document;
-  const segmenter = harness.projectStore.segmenter;
+  const { store } = props;
+  const doc = store.document;
+  const segmenter = store.segmenter;
   const [selectedRow, setSelectedRow] = useState(0);
 
   if (!doc)
@@ -124,13 +124,13 @@ export const TranscriptionGrid = observer(function TranscriptionGrid(props: {
               key={`tr-${i}-${rev}`}
               initial={seg.transcription}
               placeholder={t("grid.transcriptionPlaceholder", "transcription…")}
-              onCommit={(text) => void harness.saveCell(i, "transcription", text)}
+              onCommit={(text) => void saveCell(store, i, "transcription", text)}
             />
             <EditableCell
               key={`ft-${i}-${rev}`}
               initial={seg.freeTranslation}
               placeholder={t("grid.freeTranslationPlaceholder", "free translation…")}
-              onCommit={(text) => void harness.saveCell(i, "freeTranslation", text)}
+              onCommit={(text) => void saveCell(store, i, "freeTranslation", text)}
             />
           </div>
         );
@@ -138,6 +138,23 @@ export const TranscriptionGrid = observer(function TranscriptionGrid(props: {
     </div>
   );
 });
+
+/** Persist a transcription / free-translation edit straight to the eaf, the way
+ * SayMore saves on cell change. Goes through the DOM-preserving document store. */
+async function saveCell(
+  store: ProjectStore,
+  index: number,
+  field: "transcription" | "freeTranslation",
+  text: string,
+): Promise<void> {
+  const doc = store.document;
+  const adapter = store.adapter;
+  if (!doc || !adapter) return;
+  if (field === "transcription") doc.tiers.setTranscription(index, text);
+  else doc.tiers.setFreeTranslation(index, text);
+  doc.bumpVersion();
+  await doc.save(adapter);
+}
 
 const cellCss = css`
   display: flex;

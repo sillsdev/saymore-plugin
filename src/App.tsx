@@ -17,6 +17,7 @@ import { resolveSaymoreTabs } from "./plugin/tabProvider";
 import { annotationsEafName } from "./fs/SessionFolder";
 import { createEafFromTemplate, serializeEaf } from "./model/eaf/EafDocument";
 import { eafTemplateXml } from "./model/eaf/eafTemplate";
+import { autoSegmentToEaf } from "./audio/autoSegmentToEaf";
 import { t } from "./l10n";
 
 /**
@@ -102,6 +103,27 @@ export const App = observer(function App() {
     }
   }
 
+  // State A button: run the auto-segmenter over the audio and write the segments into a
+  // SayMore-compatible `<media>.annotations.eaf` BEFORE revealing the segmenter. The eaf
+  // must be complete before `selectFile` because that recreates the iframe on the
+  // "Segments" tab (code after it never runs). Fallback (host without `selectFile`): open
+  // the segmenter inline on this tab, reading back the eaf we just wrote.
+  async function handleAutoSegment(onProgress: (fraction: number) => void): Promise<void> {
+    const conn = connRef.current;
+    if (!conn) throw new Error("Not connected to lameta.");
+    const { eafRel } = await autoSegmentToEaf({
+      adapter: conn.adapter,
+      mediaFileName: conn.selectedFileName,
+      onProgress,
+    });
+    try {
+      await conn.api.selectFile(eafRel);
+    } catch {
+      setStartMediaName(undefined);
+      await store.openSession(conn.adapter);
+    }
+  }
+
   // The hidden provider instance has no UI — it only answers getTabs.
   if (providerMode) return null;
 
@@ -110,7 +132,17 @@ export const App = observer(function App() {
       {store.segmenter ? (
         <ManualSegmenterView store={store} />
       ) : startMediaName ? (
-        <StartAnnotatingView mediaFileName={startMediaName} onStart={handleStartAnnotating} />
+        <StartAnnotatingView
+          mediaFileName={startMediaName}
+          onStart={handleStartAnnotating}
+          onAutoSegment={handleAutoSegment}
+        />
+      ) : store.startAnnotatingMedia ? (
+        <StartAnnotatingView
+          mediaFileName={store.startAnnotatingMedia}
+          onStart={() => store.startAnnotatingManual()}
+          onAutoSegment={(onProgress) => store.autoSegment(onProgress)}
+        />
       ) : embedded ? (
         <PluginConnecting error={connectError ?? store.error} />
       ) : (

@@ -1,0 +1,49 @@
+import { autoSegmentEnvelope, type AutoSegmenterSettings } from "./autoSegmenter";
+import type { AutoSegmenterRequest, AutoSegmenterResponse } from "./autoSegmenter";
+import type { Envelope } from "./EnvelopeCache";
+
+/**
+ * App-side driver for the auto-segmenter. Runs the (potentially long)
+ * natural-breaks search in {@link autoSegmenter.worker} off the UI thread and
+ * resolves with the boundary seconds, forwarding progress fractions (0→1) as
+ * they arrive.
+ *
+ * Falls back to running the pure port {@link autoSegmentEnvelope} synchronously
+ * when Web Workers aren't available (node/test environments, or a host that
+ * blocks module workers) — same result, just on the calling thread.
+ */
+export function runAutoSegmenter(
+  envelope: Envelope,
+  settings: AutoSegmenterSettings,
+  onProgress?: (fraction: number) => void,
+): Promise<number[]> {
+  if (typeof Worker === "undefined") {
+    return Promise.resolve(autoSegmentEnvelope(envelope, settings, onProgress));
+  }
+
+  let worker: Worker;
+  try {
+    worker = new Worker(new URL("./autoSegmenter.worker.ts", import.meta.url), { type: "module" });
+  } catch {
+    // Worker construction can throw where module workers are unsupported.
+    return Promise.resolve(autoSegmentEnvelope(envelope, settings, onProgress));
+  }
+
+  return new Promise<number[]>((resolve, reject) => {
+    worker.onmessage = (event: MessageEvent<AutoSegmenterResponse>) => {
+      const message = event.data;
+      if (message.type === "progress") {
+        onProgress?.(message.fraction);
+      } else {
+        worker.terminate();
+        resolve(message.boundaries);
+      }
+    };
+    worker.onerror = (event) => {
+      worker.terminate();
+      reject(new Error(event.message || "Auto-segmenter worker failed."));
+    };
+    const request: AutoSegmenterRequest = { envelope, settings };
+    worker.postMessage(request);
+  });
+}

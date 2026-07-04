@@ -13,18 +13,16 @@ import {
   type WaveformSurfaceApi,
 } from "../waveform/WaveformSurface";
 import { PlaybackCursor } from "../waveform/PlaybackCursor";
+import type { SegmentCellState } from "../../state/recorder/recorderTypes";
 import { AnnotationCellsLayer } from "./AnnotationCellsLayer";
 import { ListenButton, SpeakButton } from "./ListenSpeakButtons";
 import { NewSegmentBoundaryLayer } from "./NewSegmentBoundaryLayer";
 import { PeakMeter } from "./PeakMeter";
 import { sourceCursorXPx } from "./playbackCursor";
+import { cellOpacity, opacityMaskAlpha } from "./segmentOpacity";
 import { SourceSegmentControls } from "./SourceSegmentControls";
 import { recorderKeyAction, type RecorderAction } from "./recorderKeys";
-import {
-  NEW_BOUNDARY_NUDGE_MS,
-  PIXELS_PER_SECOND_AT_100,
-  SELECTED_SEGMENT_HIGHLIGHT_COLOR,
-} from "../../model/SayMoreConstants";
+import { NEW_BOUNDARY_NUDGE_MS, PIXELS_PER_SECOND_AT_100 } from "../../model/SayMoreConstants";
 import {
   LAMETA_BLUE,
   LAMETA_DARK_BLUE,
@@ -193,6 +191,7 @@ export const RecorderView = observer(function RecorderView(props: { store: Proje
             mediaElement={mediaElement}
             minPxPerSec={PIXELS_PER_SECOND_AT_100}
             waveColor={LAMETA_DARK_BLUE}
+            waveOpacity={1}
             overlay={(viewport) => <RecorderOverlay vm={vm} viewport={viewport} />}
           />
         </div>
@@ -318,50 +317,22 @@ function RowLabel(props: { color: string; children: React.ReactNode }) {
 
 /**
  * The source row's overlay: a uniform background (the blue comes from the
- * waveform polyline itself, via WaveformSurface's waveColor) with only the
- * current segment (or virtual new-boundary) highlighted Moccasin — John
- * asked to drop the earlier per-segment/segmented-vs-unsegmented background
- * washes. Also the draggable new-boundary line and the per-segment
- * play/Ignored/Undo controls, all in the wave's content coordinates.
+ * waveform polyline itself, via WaveformSurface's waveColor/waveOpacity=1) —
+ * no per-segment fills, not even the earlier Moccasin current-segment
+ * highlight (John: recorder rows encode segment state as waveform opacity
+ * instead; the segmenter is unaffected). Also the draggable new-boundary
+ * line, the playback cursor, and the per-segment play/Ignored/Undo controls,
+ * all in the wave's content coordinates.
  */
 const RecorderOverlay = observer(function RecorderOverlay(props: {
   vm: RecorderViewModel;
   viewport: Viewport;
 }) {
   const { vm, viewport } = props;
-  const cells = vm.cells;
-  const lastSegmentEnd = cells.length > 0 ? cells[cells.length - 1].range.end : 0;
-
-  const currentCell = cells.find((c) => c.isCurrent);
-  const highlight =
-    vm.currentIndex === "new"
-      ? { startSec: lastSegmentEnd, endSec: vm.newSegmentEndSec }
-      : currentCell
-        ? { startSec: currentCell.range.start, endSec: currentCell.range.end }
-        : undefined;
 
   return (
     <>
-      {highlight && (
-        <div
-          css={css`
-            position: absolute;
-            top: 0;
-            height: ${viewport.height}px;
-            background: ${SELECTED_SEGMENT_HIGHLIGHT_COLOR};
-            opacity: 0.65;
-            pointer-events: none;
-          `}
-          style={{
-            left: viewport.secondsToPx(highlight.startSec),
-            width: Math.max(
-              0,
-              viewport.secondsToPx(highlight.endSec) - viewport.secondsToPx(highlight.startSec),
-            ),
-          }}
-        />
-      )}
-
+      <SegmentOpacityMasks cells={vm.cells} viewport={viewport} />
       <SourceSegmentControls vm={vm} viewport={viewport} />
       <NewSegmentBoundaryLayer vm={vm} viewport={viewport} />
       <PlaybackCursor
@@ -369,6 +340,41 @@ const RecorderOverlay = observer(function RecorderOverlay(props: {
         height={viewport.height}
         visible={vm.playback.isPlaying}
       />
+    </>
+  );
+});
+
+/**
+ * Dims non-current/ignored segments with a translucent white mask over the
+ * (fully-opaque) wave, reproducing cellOpacity's 100/70/30% levels — see
+ * segmentOpacity.ts for the math. The current segment needs no mask.
+ */
+const SegmentOpacityMasks = observer(function SegmentOpacityMasks(props: {
+  cells: readonly SegmentCellState[];
+  viewport: Viewport;
+}) {
+  const { cells, viewport } = props;
+  return (
+    <>
+      {cells.map((cell, i) => {
+        const alpha = opacityMaskAlpha(cellOpacity(cell));
+        if (alpha <= 0) return null;
+        const left = viewport.secondsToPx(cell.range.start);
+        const width = Math.max(0, viewport.secondsToPx(cell.range.end) - left);
+        return (
+          <div
+            key={i}
+            css={css`
+              position: absolute;
+              top: 0;
+              height: ${viewport.height}px;
+              background: #fff;
+              pointer-events: none;
+            `}
+            style={{ left, width, opacity: alpha }}
+          />
+        );
+      })}
     </>
   );
 });

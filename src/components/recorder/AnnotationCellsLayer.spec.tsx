@@ -110,6 +110,45 @@ describe("AnnotationCellsLayer mini-waveform staleness", () => {
   });
 });
 
+describe("AnnotationCellsLayer segment-state opacity (no fills)", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("renders the canvas at 100% opacity for the current cell and 70% for a normal one — no background fill either way", () => {
+    vi.spyOn(miniWaveform, "drawMiniWaveform").mockImplementation(() => {});
+    vi.spyOn(miniWaveform, "miniWaveformFromWav").mockReturnValue([]);
+    const cells: SegmentCellState[] = [
+      { range: makeTimeRange(0, 1), annotated: true, ignored: false, isCurrent: true },
+      { range: makeTimeRange(1, 2), annotated: true, ignored: false, isCurrent: false },
+    ];
+    const store = new FakeRecordingStore(new Uint8Array([1]));
+    const vm = fakeVm(store, { cells });
+    render(<AnnotationCellsLayer vm={vm} viewport={fakeViewport()} height={72} />);
+
+    const currentCanvas = screen.getByTestId("annotation-cell-0").querySelector("canvas")!;
+    const normalCanvas = screen.getByTestId("annotation-cell-1").querySelector("canvas")!;
+    expect(currentCanvas.style.opacity).toBe("1");
+    expect(normalCanvas.style.opacity).toBe("0.7");
+    expect(getComputedStyle(screen.getByTestId("annotation-cell-0")).backgroundColor).not.toBe(
+      "rgb(255, 228, 181)", // Moccasin — must not appear as a fill anymore
+    );
+  });
+
+  it("fades the 'skipped' label to 30% opacity for an ignored cell", () => {
+    const cells: SegmentCellState[] = [
+      { range: makeTimeRange(0, 1), annotated: false, ignored: true, isCurrent: false },
+    ];
+    const store = new FakeRecordingStore(undefined);
+    const vm = fakeVm(store, { cells });
+    render(<AnnotationCellsLayer vm={vm} viewport={fakeViewport()} height={72} />);
+
+    const label = screen.getByText("skipped");
+    expect((label as HTMLElement).style.opacity).toBe("0.3");
+  });
+});
+
 describe("AnnotationCellsLayer playback cursor + recording indicator", () => {
   afterEach(() => {
     cleanup();

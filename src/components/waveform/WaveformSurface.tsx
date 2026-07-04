@@ -69,6 +69,10 @@ export interface WaveformSurfaceProps {
   /** Wave/progress color; defaults to the segmenter's green (the recorder's
    * source row uses a blue shade instead — same waveform, different tool). */
   waveColor?: string;
+  /** CSS opacity of the rendered wave; defaults to the segmenter's 0.7. The
+   * recorder renders at 1 and encodes per-segment state (current/normal/
+   * ignored) via its own overlay masks instead. */
+  waveOpacity?: number;
   /** wavesurfer click-to-seek → position the segmenter cursor. */
   onSeek?(seconds: number): void;
   /** Render the interaction overlay in content coordinates, synced to scroll. */
@@ -84,6 +88,7 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
     const { envelope, durationSec, mediaElement, mediaUrl, onSeek, overlay } = props;
     const height = props.height ?? DEFAULT_HEIGHT;
     const waveColor = props.waveColor ?? LAMETA_WAVEFORM;
+    const waveOpacity = props.waveOpacity ?? 0.7;
 
     const rootRef = useRef<HTMLDivElement>(null);
     const waveRef = useRef<HTMLDivElement>(null);
@@ -256,8 +261,8 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
               position: absolute;
               inset: 0;
               z-index: 1;
-              opacity: 0.7;
             `}
+            style={{ opacity: waveOpacity }}
           />
           <div
             css={css`

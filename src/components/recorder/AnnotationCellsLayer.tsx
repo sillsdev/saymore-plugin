@@ -4,7 +4,6 @@ import { observer } from "mobx-react-lite";
 import { useEffect, useRef, useState } from "react";
 import CircularProgress from "@mui/material/CircularProgress";
 import { t } from "../../l10n";
-import { SELECTED_SEGMENT_HIGHLIGHT_COLOR } from "../../model/SayMoreConstants";
 import type { RecorderViewModel } from "../../state/recorder/RecorderViewModel";
 import type { Viewport } from "../waveform/WaveformSurface";
 import { PlaybackCursor } from "../waveform/PlaybackCursor";
@@ -12,6 +11,7 @@ import { layoutCells, newSegmentRect, type CellRect } from "./cellLayout";
 import { drawMiniWaveform, miniWaveformFromWav, wavDurationSec } from "./miniWaveform";
 import { clipCursorXPx } from "./playbackCursor";
 import { PlayIcon } from "./PlayIcon";
+import { cellOpacity } from "./segmentOpacity";
 import rerecordIconUrl from "./icons/RerecordOralAnnotation.png";
 import eraseIconUrl from "./icons/RecordErase.png";
 
@@ -60,7 +60,6 @@ export const AnnotationCellsLayer = observer(function AnnotationCellsLayer(props
             position: absolute;
             top: 0;
             height: ${height}px;
-            background: ${SELECTED_SEGMENT_HIGHLIGHT_COLOR};
           `}
           style={{ left: newRect.left, width: newRect.width }}
         >
@@ -74,8 +73,6 @@ export const AnnotationCellsLayer = observer(function AnnotationCellsLayer(props
             position: absolute;
             top: 0;
             height: ${height}px;
-            background: ${SELECTED_SEGMENT_HIGHLIGHT_COLOR};
-            opacity: 0.5;
           `}
           style={{ left: newRect.left, width: newRect.width }}
         />
@@ -150,6 +147,7 @@ const AnnotationCell = observer(function AnnotationCell(props: {
   const [hovered, setHovered] = useState(false);
   const canvasWidth = Math.max(1, Math.round(rect.width));
   const clipDurationSec = bytes ? safeWavDurationSec(bytes) : 0;
+  const opacity = cellOpacity(cell);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -187,7 +185,6 @@ const AnnotationCell = observer(function AnnotationCell(props: {
         height: ${height}px;
         border-right: 1px solid #dce7d0;
         pointer-events: auto;
-        background: ${cell.isCurrent ? SELECTED_SEGMENT_HIGHLIGHT_COLOR : "transparent"};
       `}
       style={{ left: rect.left, width: rect.width }}
     >
@@ -203,11 +200,18 @@ const AnnotationCell = observer(function AnnotationCell(props: {
             font-size: 11px;
             color: #78909c;
           `}
+          style={{ opacity }}
         >
           {t("recorder.skipped", "skipped")}
         </span>
       ) : (
-        <canvas ref={canvasRef} width={canvasWidth} height={height} css={canvasCss} />
+        <canvas
+          ref={canvasRef}
+          width={canvasWidth}
+          height={height}
+          css={canvasCss}
+          style={{ opacity }}
+        />
       )}
 
       {isPlayingThis && (

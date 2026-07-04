@@ -6,7 +6,7 @@ import { createEafFromTemplate, serializeEaf } from "../model/eaf/EafDocument";
 import { eafTemplateXml } from "../model/eaf/eafTemplate";
 import { DEFAULT_AUTO_SEGMENTER_SETTINGS, type AutoSegmenterSettings } from "./autoSegmenter";
 import { computeEnvelope } from "./envelope";
-import { runAutoSegmenter } from "./autoSegmenterClient";
+import { runSilenceSegmenter } from "./autoSegmenterClient";
 import type { Envelope } from "./EnvelopeCache";
 
 /**
@@ -54,7 +54,7 @@ export interface AutoSegmentToEafOptions {
   envelope?: Envelope;
   settings?: AutoSegmenterSettings;
   onProgress?: (fraction: number) => void;
-  /** Seam for tests: defaults to the Web-Worker-backed {@link runAutoSegmenter}. */
+  /** Seam for tests: defaults to the silence/VAD {@link runSilenceSegmenter}. */
   runSegmenter?: (
     envelope: Envelope,
     settings: AutoSegmenterSettings,
@@ -82,7 +82,7 @@ export async function autoSegmentToEaf(
 ): Promise<{ eafRel: string; boundaries: number[] }> {
   const { adapter, mediaFileName } = opts;
   const settings = opts.settings ?? DEFAULT_AUTO_SEGMENTER_SETTINGS;
-  const runSegmenter = opts.runSegmenter ?? runAutoSegmenter;
+  const runSegmenter = opts.runSegmenter ?? runSilenceSegmenter;
   const eafRel = annotationsEafName(mediaFileName);
 
   // Guard a race where an `.eaf` appeared since load — don't overwrite it.

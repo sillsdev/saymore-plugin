@@ -1,6 +1,23 @@
 import { autoSegmentEnvelope, type AutoSegmenterSettings } from "./autoSegmenter";
 import type { AutoSegmenterRequest, AutoSegmenterResponse } from "./autoSegmenter";
+import { getSilenceBreaks } from "./silenceSegmenter";
 import type { Envelope } from "./EnvelopeCache";
+
+/**
+ * The auto-segment button's segmenter: the silence/VAD segmenter
+ * ({@link getSilenceBreaks}), which breaks on natural pauses regardless of clip
+ * length (unlike the length-gated C# port). It's O(n) over the 1-per-ms envelope
+ * — fast enough to run on the calling thread, and it reads the envelope in place
+ * so there's no `postMessage` clone of the (possibly observable) envelope.
+ * `_settings` is accepted for the shared runner signature but unused.
+ */
+export function runSilenceSegmenter(
+  envelope: Envelope,
+  _settings: AutoSegmenterSettings,
+  onProgress?: (fraction: number) => void,
+): Promise<number[]> {
+  return Promise.resolve(getSilenceBreaks(envelope, undefined, onProgress));
+}
 
 /**
  * Deep-plain copy of an envelope so it survives `postMessage`'s structured

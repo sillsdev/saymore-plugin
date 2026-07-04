@@ -97,6 +97,90 @@ describe("SegmenterViewModel edits + undo", () => {
   });
 });
 
+describe("SegmenterViewModel debounced autosave flushes the oral-file journal", () => {
+  /** Build [0,0.75] [0.75,1.25] [1.25,5] over a seeded 0.75_to_1.25 Careful WAV. */
+  async function withMovedBoundary() {
+    const { document, playback, adapter } = makeVm({ withOral: true });
+    const oralIndex = await OralAnnotationIndex.build(adapter, "m.wav");
+    const vm = new SegmenterViewModel({ document, playback, adapter, oralIndex });
+    vm.setCursor(0.75);
+    vm.addBoundaryAtCursor();
+    vm.setCursor(1.25);
+    vm.addBoundaryAtCursor();
+    vm.setCursor(5);
+    vm.addBoundaryAtCursor();
+    vm.selectBoundaryAt(1.25);
+    vm.moveSelectedBoundaryTo(1.4);
+    return { vm, adapter };
+  }
+
+  it("crash consistency: the debounced autosave renames the WAV to match the eaf (no save())", async () => {
+    vi.useFakeTimers();
+    const { vm, adapter } = await withMovedBoundary();
+    try {
+      // Never call save(): just let the debounce fire, as it would mid-session.
+      await vi.advanceTimersByTimeAsync(600);
+      expect(await adapter.exists("m.wav_Annotations/0.75_to_1.4_Careful.wav")).toBe(true);
+      expect(await adapter.exists("m.wav_Annotations/0.75_to_1.25_Careful.wav")).toBe(false);
+      expect(await adapter.exists("m.wav.annotations.eaf")).toBe(true);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vm.dispose();
+    }
+  });
+
+  it("undo after a flushed rename reverses it on the next flush", async () => {
+    vi.useFakeTimers();
+    const { vm, adapter } = await withMovedBoundary();
+    try {
+      await vi.advanceTimersByTimeAsync(600); // flush the rename
+      expect(await adapter.exists("m.wav_Annotations/0.75_to_1.4_Careful.wav")).toBe(true);
+
+      vm.undo(); // boundary back to 1.25
+      await vi.advanceTimersByTimeAsync(600); // next flush reconciles the reverse
+      expect(await adapter.exists("m.wav_Annotations/0.75_to_1.25_Careful.wav")).toBe(true);
+      expect(await adapter.exists("m.wav_Annotations/0.75_to_1.4_Careful.wav")).toBe(false);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vm.dispose();
+    }
+  });
+
+  it("undo of a flushed boundary-delete restores the deleted WAV from backup", async () => {
+    vi.useFakeTimers();
+    const { document, playback, adapter } = makeVm({ withOral: true });
+    const oralIndex = await OralAnnotationIndex.build(adapter, "m.wav");
+    const vm = new SegmenterViewModel({ document, playback, adapter, oralIndex });
+    try {
+      vm.setCursor(0.75);
+      vm.addBoundaryAtCursor();
+      vm.setCursor(1.25);
+      vm.addBoundaryAtCursor();
+      vm.setCursor(5);
+      vm.addBoundaryAtCursor();
+
+      // Delete the [0.75,1.25] segment (its boundary at 1.25) → deletes its WAV.
+      vm.selectBoundaryAt(1.25);
+      vm.deleteSelectedBoundary();
+      await vi.advanceTimersByTimeAsync(600);
+      expect(await adapter.exists("m.wav_Annotations/0.75_to_1.25_Careful.wav")).toBe(false);
+
+      vm.undo();
+      await vi.advanceTimersByTimeAsync(600);
+      expect(await adapter.exists("m.wav_Annotations/0.75_to_1.25_Careful.wav")).toBe(true);
+      expect(await adapter.readBytes("m.wav_Annotations/0.75_to_1.25_Careful.wav")).toEqual(
+        new Uint8Array([9]),
+      );
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vm.dispose();
+    }
+  });
+});
+
 describe("SegmenterViewModel oral-file journal on save", () => {
   it("renames the adjacent _Careful.wav when its boundary moves, and writes the EAF", async () => {
     vi.useFakeTimers();

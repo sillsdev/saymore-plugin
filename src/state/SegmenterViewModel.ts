@@ -17,6 +17,7 @@ import type { FileSystemAdapter } from "../fs/FileSystemAdapter";
 import type { OralAnnotationIndex, FileOp } from "../fs/OralAnnotationFiles";
 import type { AnnotationDocumentStore } from "./AnnotationDocumentStore";
 import { UndoStack } from "./UndoStack";
+import { OralFileReconciler } from "./OralFileReconciler";
 
 /** No segment/boundary currently selected. */
 export const NONE = -1;
@@ -43,6 +44,8 @@ export class SegmenterViewModel {
   readonly undoStack = new UndoStack();
   private readonly adapter?: FileSystemAdapter;
   private readonly oralIndex?: OralAnnotationIndex;
+  /** Keeps `_Annotations/` WAVs consistent with the model on every flush. */
+  private readonly reconciler?: OralFileReconciler;
 
   cursorSec = 0;
   /** Index of the segment whose END boundary is selected, or NONE. */
@@ -60,15 +63,17 @@ export class SegmenterViewModel {
     this.playback = deps.playback;
     this.adapter = deps.adapter;
     this.oralIndex = deps.oralIndex;
+    this.reconciler = deps.adapter ? new OralFileReconciler(deps.adapter) : undefined;
     makeAutoObservable<
       SegmenterViewModel,
-      "adapter" | "oralIndex" | "replayTimer" | "warningTimer" | "autoSaveTimer"
+      "adapter" | "oralIndex" | "reconciler" | "replayTimer" | "warningTimer" | "autoSaveTimer"
     >(this, {
       document: false,
       playback: false,
       undoStack: false,
       adapter: false,
       oralIndex: false,
+      reconciler: false,
       replayTimer: false,
       warningTimer: false,
       autoSaveTimer: false,
@@ -76,17 +81,35 @@ export class SegmenterViewModel {
   }
 
   /**
-   * Continuous save: after any edit, debounce-write the eaf through the adapter
-   * (there is no Save button). No-op in single-file mode (no adapter). Uses the
-   * DOM-preserving document write; it does not run the end-of-file rules or the
-   * oral-file journal — those still belong to an explicit {@link save}.
+   * Continuous save: after any edit, debounce a {@link flush} through the adapter
+   * (there is no Save button). No-op in single-file mode (no adapter). Does NOT
+   * run the end-of-file rules — those are finalization and belong to {@link save}
+   * (segmenter exit).
    */
   private scheduleAutoSave(): void {
     if (!this.adapter) return;
     if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
     this.autoSaveTimer = setTimeout(() => {
-      void this.document.save(this.adapter!).catch(() => {});
+      void this.flush().catch(() => {});
     }, AUTO_SAVE_DELAY_MS);
+  }
+
+  /**
+   * One persistence pass: reconcile the oral-annotation WAVs to the current model
+   * AND write the eaf in the SAME flush, so a crash never leaves the eaf pointing
+   * at un-renamed or orphaned recordings (the reason boundary edits must not
+   * defer the oral-file journal to an explicit save that the app never calls).
+   * The reconciler applies only the delta since the last flush, so undo/redo
+   * self-correct (reverse rename; restore a deleted clip from backup).
+   */
+  private async flush(): Promise<void> {
+    const adapter = this.adapter;
+    if (!adapter) return;
+    if (this.reconciler) {
+      await this.reconciler.reconcile(this.undoStack.collectFileOps());
+      await this.oralIndex?.refresh();
+    }
+    await this.document.save(adapter);
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -334,23 +357,29 @@ export class SegmenterViewModel {
     return touchesSelf || (!!next && this.oralIndex.hasAnyForRange(next.range));
   }
 
-  // ── Save ─────────────────────────────────────────────────────────────────
+  // ── Finalize (segmenter exit) ──────────────────────────────────────────────
   /**
-   * Apply SayMore's end-of-file rules, commit the coalesced oral-file journal
-   * through the adapter, and write the DOM-preserving EAF. Clears undo history
-   * (a save is a commit point — matches SayMore's commit-on-OK semantics).
+   * Finalization on segmenter exit (SayMore's commit-on-OK): apply the end-of-file
+   * rules, then do a final {@link flush} (WAV reconcile + eaf together), then clear
+   * undo history and adopt the persisted folder as the reconciler's new baseline.
+   *
+   * Continuous persistence no longer depends on this — every edit's eaf write and
+   * oral-file journal already land together via the debounced {@link flush}. What
+   * remains unique to finalize is the end-of-file rules (extend/trailing-ignored),
+   * which are a finalization step, not a per-edit transform, so they run only here.
    */
   async save(): Promise<void> {
     if (!this.adapter) throw new Error("SegmenterViewModel: no adapter (single-file mode)");
+    if (this.autoSaveTimer) {
+      clearTimeout(this.autoSaveTimer);
+      this.autoSaveTimer = undefined;
+    }
     this.document.tiers.applyEndOfFileRules(this.durationSec);
     this.document.tiers.trimToDuration(this.durationSec);
     this.document.bumpVersion();
-
-    if (this.oralIndex) {
-      await this.oralIndex.applyOps(this.undoStack.collectFileOps());
-    }
-    await this.document.save(this.adapter);
+    await this.flush();
     this.undoStack.clear();
+    this.reconciler?.commitBaseline();
   }
 
   /** Serialize without writing — used by single-file (download) mode. */

@@ -4,6 +4,7 @@ import { observer } from "mobx-react-lite";
 import { t } from "../../l10n";
 import { LAMETA_DARK_GREEN, LAMETA_UI_FONT } from "../../lametaTheme";
 import type { RecorderViewModel } from "../../state/recorder/RecorderViewModel";
+import { DeviceIndicator } from "./DeviceIndicator";
 
 const METER_WIDTH_PX = 56;
 
@@ -31,9 +32,7 @@ export const PeakMeter = observer(function PeakMeter(props: { vm: RecorderViewMo
           gap: 4px;
         `}
       >
-        <span aria-hidden css={css({ fontSize: 12, lineHeight: 1 })}>
-          🎙
-        </span>
+        <DeviceIndicator vm={vm} />
         <div
           role="meter"
           aria-label={t("recorder.micLevel", "Microphone level")}

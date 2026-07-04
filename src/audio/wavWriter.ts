@@ -21,8 +21,12 @@ function roundHalfAwayFromZero(value: number): number {
   return value >= 0 ? Math.floor(value + 0.5) : Math.ceil(value - 0.5);
 }
 
-/** Clamp to [-1, 1], then scale/round to a signed 16-bit PCM sample. */
-function floatToPcm16(sample: number): number {
+/**
+ * Clamp to [-1, 1], then scale/round to a signed 16-bit PCM sample. Exported so
+ * {@link "./oralAnnotationsWav"}'s multichannel encoder can reuse the same
+ * float->int16 mapping without duplicating it.
+ */
+export function floatToPcm16(sample: number): number {
   const clamped = sample < -1 ? -1 : sample > 1 ? 1 : sample;
   // +1.0 * 32768 = 32768, one past int16 max; the final clamp pulls it back to
   // 32767 (the standard asymmetric float->int16 full-scale mapping).

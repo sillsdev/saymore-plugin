@@ -12,11 +12,12 @@ export function PlaybackCursor(props: {
   height: number;
   color?: string;
   visible?: boolean;
+  testId?: string;
 }) {
   if (props.visible === false) return null;
   return (
     <div
-      data-testid="playback-cursor"
+      data-testid={props.testId ?? "playback-cursor"}
       css={css`
         position: absolute;
         top: 0;

@@ -1,10 +1,8 @@
 /** @jsxImportSource @emotion/react */
 import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
-import { t } from "../l10n";
 import type { HarnessStore } from "./HarnessStore";
 import type { SessionNode } from "./sessionTree";
-import { stubTitle } from "../components/shell/stub";
 import { LAMETA_UI_FONT } from "../lametaTheme";
 import audioIconUrl from "./icons/Audio.png";
 import elanIconUrl from "./icons/ELAN.png";
@@ -21,11 +19,17 @@ function nodeIconUrl(kind: SessionNode["kind"]): string {
   }
 }
 
+function selectNode(harness: HarnessStore, kind: SessionNode["kind"]): void {
+  if (kind === "audio") void harness.selectAudio();
+  else if (kind === "eaf") void harness.selectEaf();
+  else void harness.selectOral();
+}
+
 /**
  * The simulated SayMore session file list (reference screenshot 1): the media
  * "Audio" row, a nested "Annotations" row once an `.eaf` exists, and an
- * "OralAnnotations" row when per-segment WAVs exist. Clicking a selectable row
- * drives the pane below; the oral row is display-only.
+ * "OralAnnotations" row once the combined WAV exists. Every row is selectable
+ * and drives the pane below.
  */
 export const FileTree = observer(function FileTree(props: { harness: HarnessStore }) {
   const { harness } = props;
@@ -43,31 +47,23 @@ export const FileTree = observer(function FileTree(props: { harness: HarnessStor
       `}
     >
       {nodes.map((node) => {
-        const selectable = node.kind === "audio" || node.kind === "eaf";
-        const selected =
-          (node.kind === "audio" && harness.selection === "audio") ||
-          (node.kind === "eaf" && harness.selection === "eaf");
+        const selected = harness.selection === node.kind;
         return (
           <div
             key={node.kind + node.name}
-            role={selectable ? "button" : undefined}
-            title={selectable ? undefined : stubTitle(t("harness.oralRow", "Oral annotations"))}
-            onClick={
-              selectable
-                ? () => void (node.kind === "audio" ? harness.selectAudio() : harness.selectEaf())
-                : undefined
-            }
+            role="button"
+            onClick={() => selectNode(harness, node.kind)}
             css={css`
               display: flex;
               align-items: center;
               gap: 6px;
               padding: 3px 8px 3px ${8 + node.depth * 20}px;
-              cursor: ${selectable ? "pointer" : "default"};
-              color: ${selectable ? "#263238" : "#78909c"};
+              cursor: pointer;
+              color: #263238;
               background: ${selected ? "#cfe4ff" : "transparent"};
               border-bottom: 1px solid #eceff1;
               &:hover {
-                background: ${selected ? "#cfe4ff" : selectable ? "#f0f4f7" : "transparent"};
+                background: ${selected ? "#cfe4ff" : "#f0f4f7"};
               }
             `}
           >

@@ -71,6 +71,10 @@ export class HarnessStore {
     return this.tree.eafName !== undefined;
   }
 
+  get hasOral(): boolean {
+    return this.tree.nodes.some((n) => n.kind === "oral");
+  }
+
   /** Which view the Annotations pane shows — proxies the real ProjectStore field. */
   get eafView(): EafView {
     return this.projectStore.annotationsView;
@@ -249,6 +253,24 @@ export class HarnessStore {
       // openSession resets the ProjectStore (annotationsView defaults to
       // "segmenter"); the harness's own eaf selection always starts at the grid.
       this.projectStore.showGrid();
+      this.busy = false;
+    });
+    this.syncUrl();
+  }
+
+  /** Select the OralAnnotations tree node: load the session (if not already) then open the viewer. */
+  async selectOral(): Promise<void> {
+    const adapter = this.adapter;
+    if (!adapter || !this.hasOral) return;
+    runInAction(() => {
+      this.selection = "oral";
+      this.busy = true;
+    });
+    if (!this.projectStore.document) {
+      await this.projectStore.openSession(adapter);
+    }
+    runInAction(() => {
+      this.projectStore.openOralAnnotationsViewer();
       this.busy = false;
     });
     this.syncUrl();

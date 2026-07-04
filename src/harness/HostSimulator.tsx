@@ -9,6 +9,7 @@ import { StartAnnotatingView } from "../components/shell/StartAnnotatingView";
 import { HarnessStore } from "./HarnessStore";
 import { FileTree } from "./FileTree";
 import { AnnotationsTabView } from "./AnnotationsTabView";
+import { OralAnnotationsViewerView } from "../components/oralAnnotations/OralAnnotationsViewerView";
 import { LAMETA_UI_FONT } from "../lametaTheme";
 
 /**
@@ -108,6 +109,10 @@ const Pane = observer(function Pane(props: { harness: HarnessStore; store: Proje
         onAutoSegment={(onProgress) => harness.runAuto(onProgress)}
       />
     );
+  }
+
+  if (harness.selection === "oral") {
+    return <OralAnnotationsViewerView store={store} />;
   }
 
   // selection === "eaf"

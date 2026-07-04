@@ -5,6 +5,7 @@ import { useState } from "react";
 import { clampBoundaryPosition } from "../../model/BoundaryRules";
 import { isSegmentIgnored } from "../../model/IgnoreMarkers";
 import { DRAG_DEAD_ZONE_PX } from "../../model/SayMoreConstants";
+import { LAMETA_DARK_BLUE, LAMETA_ORANGE } from "../../lametaTheme";
 import { t } from "../../l10n";
 import type { SegmenterViewModel } from "../../state/SegmenterViewModel";
 import type { Viewport } from "./WaveformSurface";
@@ -20,9 +21,11 @@ interface DragState {
 
 /**
  * The interaction overlay synced to the waveform's zoom/scroll: ignored-segment
- * shading, the edit cursor, boundary lines (click to select, drag to move,
- * clamped by neighbours + 460ms), and per-segment hover controls (play + ignore).
- * Rendered in content coordinates inside the WaveformSurface's translated layer.
+ * shading, the edit cursor, boundary lines (lameta-orange; click to select, drag
+ * to move via the wider top/bottom grips, clamped by neighbours + 460ms), an
+ * always-visible per-segment play button at each segment's start, and a
+ * hover-only ignore toggle. Rendered in content coordinates inside the
+ * WaveformSurface's scrolled layer.
  */
 export const BoundaryLayer = observer(function BoundaryLayer(props: {
   vm: SegmenterViewModel;
@@ -70,39 +73,24 @@ export const BoundaryLayer = observer(function BoundaryLayer(props: {
     <>
       <SegmentShading segments={segments} viewport={viewport} />
 
-      {/* Per-segment hover controls (play + ignore) in a thin top band. */}
+      {/* Per-segment controls: an always-visible play button at the segment start
+          (near the bottom, like SayMore) and a hover-only ignore toggle up top. */}
       {segments.map((seg, i) => {
-        const left = secondsToPx(seg.range.start);
+        const startX = secondsToPx(seg.range.start);
         const width = secondsToPx(seg.range.end - seg.range.start);
         const ignored = isSegmentIgnored(seg);
         return (
-          <div
-            key={`ctl-${i}`}
-            onMouseEnter={() => vm.setHoveredSegment(i)}
-            css={css`
-              position: absolute;
-              top: 0;
-              height: 24px;
-              display: flex;
-              align-items: center;
-              gap: 4px;
-              padding: 0 4px;
-              pointer-events: auto;
-              opacity: 0;
-              transition: opacity 0.1s;
-              &:hover {
-                opacity: 1;
-              }
-            `}
-            style={{ left, width }}
-          >
+          <div key={`ctl-${i}`} onMouseEnter={() => vm.setHoveredSegment(i)}>
             <button
               type="button"
               title={t("segmenter.playSegment", "Listen to this segment")}
               onClick={() => vm.playSegment(i)}
-              css={buttonCss}
+              css={playButtonCss}
+              style={{ left: startX + 3 }}
             >
-              ▶
+              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+                <path d="M2 1 L11 6 L2 11 Z" fill="#2e7d32" />
+              </svg>
             </button>
             <button
               type="button"
@@ -110,9 +98,14 @@ export const BoundaryLayer = observer(function BoundaryLayer(props: {
               aria-pressed={ignored}
               onClick={() => vm.toggleIgnore(i)}
               css={css`
-                ${buttonCss};
+                ${ignoreButtonCss};
                 background: ${ignored ? "#d9a441" : "#fff"};
+                opacity: ${ignored ? 1 : 0};
+                &:hover {
+                  opacity: 1;
+                }
               `}
+              style={{ left: startX + 3, width: Math.max(0, width - 6) }}
             >
               {ignored ? "🚫" : "◻"}
             </button>
@@ -120,17 +113,23 @@ export const BoundaryLayer = observer(function BoundaryLayer(props: {
         );
       })}
 
-      {/* Boundary lines: click to select, drag to move. */}
+      {/* Boundary lines: click to select, drag to move. Movable boundaries are
+          lameta-orange; immovable ones (segment already has an oral recording)
+          are blue — matching SayMore. Selected boundaries get pennant grips at
+          top and bottom. */}
       {segments.map((seg, i) => {
         const isDragging = drag?.index === i;
         const boundarySec = isDragging ? drag!.currentSec : seg.range.end;
         const x = secondsToPx(boundarySec);
         const selected = vm.selectedBoundaryIndex === i;
+        const color = vm.isBoundaryImmovable(i) ? LAMETA_DARK_BLUE : LAMETA_ORANGE;
+        const hitWidth = selected ? 18 : 9;
+        const lineWidth = 2;
         return (
           <div
             key={`b-${i}`}
-            // Stable hooks so the boundary line (a 9px-wide hit target) can be located
-            // for automated/headless driving and assertions, not just pixel-hunted.
+            // Stable hooks so the boundary line can be located for automated/headless
+            // driving and assertions, not just pixel-hunted.
             data-testid={`boundary-${i}`}
             data-boundary-index={i}
             data-boundary-sec={boundarySec}
@@ -142,22 +141,42 @@ export const BoundaryLayer = observer(function BoundaryLayer(props: {
               position: absolute;
               top: 0;
               height: ${height}px;
-              width: 9px;
-              margin-left: -4px;
+              width: ${hitWidth}px;
+              margin-left: ${-hitWidth / 2}px;
+              display: flex;
+              justify-content: center;
               cursor: col-resize;
               pointer-events: auto;
-              &::after {
-                content: "";
-                position: absolute;
-                left: 4px;
-                top: 0;
-                width: ${selected ? 3 : 1}px;
-                height: 100%;
-                background: ${selected ? "#1565c0" : "#37474f"};
-              }
             `}
             style={{ left: x }}
-          />
+          >
+            {/* the vertical line */}
+            <div
+              css={css`
+                position: absolute;
+                top: 0;
+                width: ${lineWidth}px;
+                height: 100%;
+                background: ${color};
+              `}
+            />
+            {selected && (
+              <>
+                <div css={pennantCss(true, color)} />
+                <div css={pennantCss(false, color)} />
+                <div
+                  css={css`
+                    position: absolute;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    width: 12px;
+                    height: 2px;
+                    background: ${color};
+                  `}
+                />
+              </>
+            )}
+          </div>
         );
       })}
 
@@ -177,15 +196,56 @@ export const BoundaryLayer = observer(function BoundaryLayer(props: {
   );
 });
 
-const buttonCss = css`
+/**
+ * A pennant grip at the top (or bottom) of a selected boundary — a rectangle
+ * tapering to a point toward the waveform center, mirroring SayMore's selected-
+ * boundary marker (shape only, no gradient shading).
+ */
+function pennantCss(top: boolean, color: string) {
+  const clip = top
+    ? "polygon(0 0, 100% 0, 100% 68%, 50% 100%, 0 68%)"
+    : "polygon(50% 0, 100% 32%, 100% 100%, 0 100%, 0 32%)";
+  return css`
+    position: absolute;
+    ${top ? "top: 0;" : "bottom: 0;"}
+    width: 14px;
+    height: 22px;
+    background: ${color};
+    clip-path: ${clip};
+  `;
+}
+
+const playButtonCss = css`
+  position: absolute;
+  bottom: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid #2e7d32;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+  pointer-events: auto;
+  &:hover {
+    background: #eef6ee;
+  }
+`;
+
+const ignoreButtonCss = css`
+  position: absolute;
+  top: 2px;
+  height: 20px;
   font-size: 11px;
   line-height: 1;
   padding: 2px 5px;
   border: 1px solid #90a4ae;
   border-radius: 3px;
-  background: #fff;
   cursor: pointer;
-  &:hover {
-    border-color: #546e7a;
-  }
+  pointer-events: auto;
+  transition: opacity 0.1s;
+  max-width: 28px;
+  overflow: hidden;
 `;

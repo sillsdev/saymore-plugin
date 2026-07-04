@@ -10,21 +10,12 @@ import { WaveformSurface, type WaveformSurfaceApi } from "../waveform/WaveformSu
 import { BoundaryLayer } from "../waveform/BoundaryLayer";
 import { SegmenterToolbar } from "./SegmenterToolbar";
 
-function downloadText(fileName: string, text: string): void {
-  const blob = new Blob([text], { type: "application/xml" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 /**
  * The Manual Segmenter tool: waveform + interaction overlay + toolbar, wired to
  * the SayMore keyboard model. Space = listen/stop, Enter = add boundary,
  * Delete = remove selected boundary, ←/→ = nudge ±5ms (with delayed replay),
- * Ctrl+1/2/3 = zoom in/reset/out, Z/Ctrl+Z = undo.
+ * Ctrl+1/2/3 = zoom in/reset/out, Z/Ctrl+Z = undo. Edits persist continuously
+ * (the ViewModel auto-saves), so there is no save button.
  */
 export const ManualSegmenterView = observer(function ManualSegmenterView(props: {
   store: ProjectStore;
@@ -36,11 +27,32 @@ export const ManualSegmenterView = observer(function ManualSegmenterView(props: 
   const height = props.height ?? "100vh";
   const vm = store.segmenter!;
   const surfaceRef = useRef<WaveformSurfaceApi>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   // Push zoom changes into the renderer.
   useEffect(() => {
     surfaceRef.current?.setZoom(vm.minPxPerSec);
   }, [vm.minPxPerSec]);
+
+  // Focus on mount so the keyboard model works without a click.
+  useEffect(() => {
+    rootRef.current?.focus();
+  }, []);
+
+  // Ctrl + mouse-wheel zooms the waveform (a non-passive listener so we can
+  // preventDefault the browser's page-zoom gesture).
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      if (e.deltaY < 0) vm.zoomIn();
+      else vm.zoomOut();
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [vm]);
 
   // Dev-only harness handle (stripped from production builds) so the segmenter
   // can be driven from the console / an automated smoke test.
@@ -52,14 +64,6 @@ export const ManualSegmenterView = observer(function ManualSegmenterView(props: 
 
   const mediaElement =
     vm.playback instanceof MediaElementPlaybackEngine ? vm.playback.mediaElement : undefined;
-
-  function handleSave(): void {
-    if (store.singleFileMode) {
-      downloadText(`${store.mediaFileName}.annotations.eaf`, vm.serialize());
-    } else {
-      void vm.save();
-    }
-  }
 
   function onKeyDown(e: React.KeyboardEvent): void {
     const ctrl = e.ctrlKey || e.metaKey;
@@ -140,6 +144,7 @@ export const ManualSegmenterView = observer(function ManualSegmenterView(props: 
 
   return (
     <div
+      ref={rootRef}
       tabIndex={0}
       onKeyDown={onKeyDown}
       css={css`
@@ -149,17 +154,23 @@ export const ManualSegmenterView = observer(function ManualSegmenterView(props: 
         height: ${height};
         font-family: system-ui, sans-serif;
       `}
-      ref={(el) => el?.focus()}
     >
-      <SegmenterToolbar
-        vm={vm}
-        onSave={handleSave}
-        saveLabel={
-          store.singleFileMode
-            ? t("segmenter.download", "Download EAF")
-            : t("segmenter.save", "Save")
-        }
-      />
+      <div
+        css={css`
+          padding: 12px 12px 0;
+        `}
+      >
+        <WaveformSurface
+          ref={surfaceRef}
+          envelope={store.envelope}
+          durationSec={vm.durationSec}
+          mediaElement={mediaElement}
+          mediaUrl={store.mediaUrl}
+          minPxPerSec={vm.minPxPerSec}
+          onSeek={(seconds) => vm.setCursor(seconds)}
+          overlay={(viewport) => <BoundaryLayer vm={vm} viewport={viewport} />}
+        />
+      </div>
 
       {vm.warning && (
         <div
@@ -175,45 +186,7 @@ export const ManualSegmenterView = observer(function ManualSegmenterView(props: 
         </div>
       )}
 
-      <div
-        css={css`
-          padding: 12px;
-          flex: 1;
-          overflow: auto;
-        `}
-      >
-        <div
-          css={css`
-            font-size: 12px;
-            color: #607d8b;
-            margin-bottom: 6px;
-          `}
-        >
-          {store.mediaFileName}
-        </div>
-        <WaveformSurface
-          ref={surfaceRef}
-          envelope={store.envelope}
-          durationSec={vm.durationSec}
-          mediaElement={mediaElement}
-          mediaUrl={store.mediaUrl}
-          minPxPerSec={vm.minPxPerSec}
-          onSeek={(seconds) => vm.setCursor(seconds)}
-          overlay={(viewport) => <BoundaryLayer vm={vm} viewport={viewport} />}
-        />
-        <p
-          css={css`
-            font-size: 12px;
-            color: #78909c;
-            margin-top: 10px;
-          `}
-        >
-          {t(
-            "segmenter.help",
-            "Space listen/stop · click to place cursor · Enter add boundary · click a boundary then drag or ←/→ to move · Delete to remove · hover a segment for play/ignore · Ctrl+1/2/3 zoom.",
-          )}
-        </p>
-      </div>
+      <SegmenterToolbar vm={vm} />
     </div>
   );
 });

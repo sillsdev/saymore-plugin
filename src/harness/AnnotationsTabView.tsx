@@ -84,7 +84,7 @@ const SegmentMode = observer(function SegmentMode(props: { harness: HarnessStore
         </button>
       </div>
       {harness.projectStore.segmenter ? (
-        <ManualSegmenterView store={harness.projectStore} height="70vh" />
+        <ManualSegmenterView store={harness.projectStore} height="auto" />
       ) : (
         <p
           css={css`

@@ -21,6 +21,9 @@ import { UndoStack } from "./UndoStack";
 /** No segment/boundary currently selected. */
 export const NONE = -1;
 
+/** Debounce before an edit is auto-persisted to the eaf (coalesces drags/nudges). */
+const AUTO_SAVE_DELAY_MS = 400;
+
 export interface SegmenterDeps {
   document: AnnotationDocumentStore;
   playback: PlaybackEngine;
@@ -50,6 +53,7 @@ export class SegmenterViewModel {
 
   private replayTimer: ReturnType<typeof setTimeout> | undefined;
   private warningTimer: ReturnType<typeof setTimeout> | undefined;
+  private autoSaveTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(deps: SegmenterDeps) {
     this.document = deps.document;
@@ -58,7 +62,7 @@ export class SegmenterViewModel {
     this.oralIndex = deps.oralIndex;
     makeAutoObservable<
       SegmenterViewModel,
-      "adapter" | "oralIndex" | "replayTimer" | "warningTimer"
+      "adapter" | "oralIndex" | "replayTimer" | "warningTimer" | "autoSaveTimer"
     >(this, {
       document: false,
       playback: false,
@@ -67,7 +71,22 @@ export class SegmenterViewModel {
       oralIndex: false,
       replayTimer: false,
       warningTimer: false,
+      autoSaveTimer: false,
     });
+  }
+
+  /**
+   * Continuous save: after any edit, debounce-write the eaf through the adapter
+   * (there is no Save button). No-op in single-file mode (no adapter). Uses the
+   * DOM-preserving document write; it does not run the end-of-file rules or the
+   * oral-file journal — those still belong to an explicit {@link save}.
+   */
+  private scheduleAutoSave(): void {
+    if (!this.adapter) return;
+    if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
+    this.autoSaveTimer = setTimeout(() => {
+      void this.document.save(this.adapter!).catch(() => {});
+    }, AUTO_SAVE_DELAY_MS);
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -188,6 +207,7 @@ export class SegmenterViewModel {
       fileOps,
     });
     this.document.bumpVersion();
+    this.scheduleAutoSave();
     return result;
   }
 
@@ -272,21 +292,37 @@ export class SegmenterViewModel {
       revert: () => this.document.tiers.replaceAll(before),
     });
     this.document.bumpVersion();
+    this.scheduleAutoSave();
   }
 
   undo(): void {
     this.undoStack.undo();
     this.clearSelection();
+    this.document.bumpVersion();
+    this.scheduleAutoSave();
   }
   redo(): void {
     this.undoStack.redo();
     this.clearSelection();
+    this.document.bumpVersion();
+    this.scheduleAutoSave();
   }
   get canUndo(): boolean {
     return this.undoStack.canUndo;
   }
   get canRedo(): boolean {
     return this.undoStack.canRedo;
+  }
+
+  /**
+   * A boundary is "immovable" when its segment already has an oral-annotation
+   * recording (SayMore draws these blue instead of the movable-orange). No oral
+   * index (or no recording) → movable.
+   */
+  isBoundaryImmovable(index: number): boolean {
+    const seg = this.segments[index];
+    if (!seg || !this.oralIndex) return false;
+    return this.oralIndex.hasAnyForRange(seg.range);
   }
 
   /** True if deleting segment `index` would touch an existing oral recording. */
@@ -327,6 +363,7 @@ export class SegmenterViewModel {
   dispose(): void {
     this.clearReplayTimer();
     if (this.warningTimer) clearTimeout(this.warningTimer);
+    if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
     this.playback.dispose();
   }
 

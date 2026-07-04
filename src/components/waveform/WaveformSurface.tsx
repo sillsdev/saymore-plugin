@@ -11,6 +11,7 @@ import {
 import WaveSurfer from "wavesurfer.js";
 import type { Envelope } from "../../audio/EnvelopeCache";
 import { envelopeToPeaks } from "../../audio/envelope";
+import { LAMETA_DARK_GREEN } from "../../lametaTheme";
 
 /**
  * The current mapping between media time and on-screen pixels, handed to the
@@ -63,6 +64,8 @@ export interface WaveformSurfaceProps {
 }
 
 const DEFAULT_HEIGHT = 128;
+/** Extra room below the wave so the horizontal scrollbar doesn't cover content. */
+const SCROLLBAR_SPACE = 16;
 
 export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfaceProps>(
   function WaveformSurface(props, ref) {
@@ -82,17 +85,22 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
     const [contentWidth, setContentWidth] = useState(0);
     const [ready, setReady] = useState(false);
 
-    // Recompute the pixel mapping from the container + current zoom.
+    // The rendered content width: the natural width at the current zoom
+    // (px/s × duration), but never narrower than the visible pane. When it
+    // exceeds the pane the root scrolls horizontally (native scrollbar) and the
+    // wave + overlay scroll together because they share this content box.
     function recompute(): void {
-      const ws = wsRef.current;
       const root = rootRef.current;
-      if (!ws || !root || durationSec <= 0) return;
-      const viewportWidth = root.clientWidth;
-      const effectivePxPerSec = Math.max(minPxRef.current, viewportWidth / durationSec);
+      if (!root || durationSec <= 0) return;
+      const paneWidth = root.clientWidth;
+      const effectivePxPerSec = Math.max(minPxRef.current, paneWidth / durationSec);
       const width = effectivePxPerSec * durationSec;
       setPxPerSec(effectivePxPerSec);
       setContentWidth(width);
-      setScrollLeft(ws.getScroll());
+      setScrollLeft(root.scrollLeft);
+      // No ws.zoom(): wavesurfer `fillParent` renders to the (wide) content box
+      // set below, and the root scrolls it. Calling zoom here would loop with the
+      // "redraw" event and mis-measure the MediaElement backend.
     }
 
     useEffect(() => {
@@ -102,17 +110,17 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
       const ws = WaveSurfer.create({
         container,
         height,
-        waveColor: "#9db4c0",
-        progressColor: "#9db4c0",
-        cursorColor: "#d33",
-        cursorWidth: 1,
+        waveColor: LAMETA_DARK_GREEN,
+        progressColor: LAMETA_DARK_GREEN,
+        cursorColor: "transparent", // the overlay draws the edit cursor
+        cursorWidth: 0,
         backend: "MediaElement",
         interact: true,
         dragToSeek: false,
-        autoScroll: true,
+        autoScroll: false,
         fillParent: true,
         normalize: false,
-        minPxPerSec: minPxRef.current,
+        minPxPerSec: 1,
         duration: durationSec,
         peaks: envelope ? envelopeToPeaks(envelope) : undefined,
         ...(mediaElement ? { media: mediaElement } : mediaUrl ? { url: mediaUrl } : {}),
@@ -129,20 +137,10 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
         setReady(true);
         recompute();
       });
-      ws.on("redraw", recompute);
-      ws.on("zoom", (px: number) => {
-        minPxRef.current = px;
-        recompute();
-        zoomSubs.current.forEach((cb) => cb(px));
-      });
-      ws.on("scroll", () => {
-        const left = ws.getScroll();
-        setScrollLeft(left);
-        scrollSubs.current.forEach((cb) => cb(left));
-      });
       ws.on("interaction", (newTime: number) => onSeek?.(newTime));
 
       // MediaElement backend with shared element may already be "ready".
+      readyRef.current = true;
       recompute();
       setReady(true);
 
@@ -174,6 +172,12 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
       pxToSeconds,
     };
 
+    function handleScroll(): void {
+      const left = rootRef.current?.scrollLeft ?? 0;
+      setScrollLeft(left);
+      scrollSubs.current.forEach((cb) => cb(left));
+    }
+
     useImperativeHandle(
       ref,
       (): WaveformSurfaceApi => ({
@@ -181,19 +185,12 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
         pxToSeconds,
         setZoom: (minPxPerSec: number) => {
           minPxRef.current = minPxPerSec;
-          // ws.zoom() throws "No audio loaded" before the renderer is ready.
-          if (readyRef.current) {
-            try {
-              wsRef.current?.zoom(minPxPerSec);
-            } catch {
-              /* not ready yet; recompute keeps the overlay consistent */
-            }
-          }
           recompute();
+          zoomSubs.current.forEach((cb) => cb(minPxPerSec));
         },
         scrollToSeconds: (seconds: number) => {
-          const ws = wsRef.current;
-          if (ws && durationSec > 0) ws.setScrollTime(seconds);
+          const root = rootRef.current;
+          if (root) root.scrollLeft = seconds * pxPerSec;
         },
         onScroll: (cb) => {
           scrollSubs.current.add(cb);
@@ -211,28 +208,30 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
     return (
       <div
         ref={rootRef}
+        onScroll={handleScroll}
         css={css`
           position: relative;
-          height: ${height}px;
-          overflow: hidden;
-          background: #f4f6f8;
+          height: ${height + SCROLLBAR_SPACE}px;
+          overflow-x: auto;
+          overflow-y: hidden;
+          background: #fff;
         `}
       >
         <div
-          ref={waveRef}
           css={css`
-            position: absolute;
-            inset: 0;
-          `}
-        />
-        <div
-          css={css`
-            position: absolute;
-            inset: 0;
-            overflow: hidden;
-            pointer-events: none;
+            position: relative;
+            height: ${height}px;
+            width: ${contentWidth > 0 ? `${contentWidth}px` : "100%"};
           `}
         >
+          <div
+            ref={waveRef}
+            css={css`
+              position: absolute;
+              inset: 0;
+              z-index: 1;
+            `}
+          />
           <div
             css={css`
               position: absolute;
@@ -240,7 +239,8 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
               left: 0;
               height: ${height}px;
               width: ${contentWidth}px;
-              transform: translateX(${-scrollLeft}px);
+              z-index: 2;
+              pointer-events: none;
             `}
           >
             {ready && overlay?.(viewport)}

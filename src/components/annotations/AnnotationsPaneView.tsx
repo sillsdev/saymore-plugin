@@ -10,6 +10,7 @@ import { t } from "../../l10n";
 import type { ProjectStore } from "../../state/ProjectStore";
 import { TranscriptionGrid } from "./TranscriptionGrid";
 import { ManualSegmenterView } from "../segmenter/ManualSegmenterView";
+import { RecorderView } from "../recorder/RecorderView";
 import { StubButton, stubTitle } from "../shell/stub";
 import { LAMETA_UI_FONT } from "../../lametaTheme";
 
@@ -31,9 +32,7 @@ export const AnnotationsPaneView = observer(function AnnotationsPaneView(props: 
       return <SegmentMode store={store} />;
     case "recorder-careful":
     case "recorder-translation":
-      // RecorderView lands in a later Track C commit; this keeps the pane
-      // navigable in the meantime.
-      return <RecorderPlaceholder store={store} />;
+      return <RecorderView store={store} />;
     case "grid":
     default:
       return <GridMode store={store} />;
@@ -190,7 +189,9 @@ const OralAnnotationToolsMenu = observer(function OralAnnotationToolsMenu(props:
       <Button
         variant="outlined"
         disabled={!hasSegments}
-        title={hasSegments ? undefined : stubTitle(label)}
+        title={
+          hasSegments ? undefined : t("annotations.oralToolsNeedsSegments", "Add segments first")
+        }
         onClick={(e) => setAnchorEl(e.currentTarget)}
         sx={{
           textTransform: "none",
@@ -218,45 +219,5 @@ const OralAnnotationToolsMenu = observer(function OralAnnotationToolsMenu(props:
         </MenuItem>
       </Menu>
     </>
-  );
-});
-
-/**
- * Placeholder for `annotationsView === "recorder-careful" | "recorder-translation"`
- * until RecorderView lands (a later Track C commit) — keeps the pane navigable
- * (and the switch above exhaustive) for the surface Worker A's `openRecorder`
- * already exposes.
- */
-const RecorderPlaceholder = observer(function RecorderPlaceholder(props: { store: ProjectStore }) {
-  const { store } = props;
-  return (
-    <div
-      css={css`
-        border: 1px solid #b7d59b;
-        font-family: ${LAMETA_UI_FONT};
-        padding: 12px;
-      `}
-    >
-      <Button
-        variant="outlined"
-        onClick={() => store.closeRecorder()}
-        sx={{
-          textTransform: "none",
-          fontFamily: "inherit",
-          fontSize: 13,
-          fontWeight: 600,
-          gap: "6px",
-          py: "3px",
-          px: "10px",
-          color: "#33691e",
-          background: "#fff",
-          borderColor: "#b7d59b",
-          "&:hover": { borderColor: "#8dbf63", background: "#fff" },
-        }}
-      >
-        ← {t("annotations.backToTranscriptions", "Back to transcriptions")}
-      </Button>
-      <p>{t("recorder.comingSoon", "The recorder view is coming soon.")}</p>
-    </div>
   );
 });

@@ -7,6 +7,7 @@ import { OpenScreen } from "./components/shell/OpenScreen";
 import { StartAnnotatingView } from "./components/shell/StartAnnotatingView";
 import { ManualSegmenterView } from "./components/segmenter/ManualSegmenterView";
 import { AnnotationsPaneView } from "./components/annotations/AnnotationsPaneView";
+import { OralAnnotationsViewerView } from "./components/oralAnnotations/OralAnnotationsViewerView";
 import { ErrorBoundary } from "./components/shell/ErrorBoundary";
 import { LAMETA_UI_FONT } from "./lametaTheme";
 import {
@@ -63,10 +64,11 @@ export const App = observer(function App() {
         const conn = buildPluginConnection(context, api);
         connRef.current = conn;
 
-        // An `.eaf` selection opens the segmenter (State B). An Audio file only ever reaches
-        // here with no `.eaf` (the provider hides our tab once one exists), but we re-check
-        // defensively — and to never overwrite an existing `.eaf`.
-        if (conn.extension !== "eaf") {
+        // A media selection only ever reaches here with no `.eaf` (the provider hides
+        // our tab once one exists), but we re-check defensively — and to never
+        // overwrite an existing `.eaf`. `.eaf` and `.oralAnnotations.wav` selections
+        // always open the session (their tab only exists once the eaf does).
+        if (conn.selectionKind === "media") {
           const hasEaf = await conn.adapter.exists(annotationsEafName(conn.selectedFileName));
           if (cancelled) return;
           if (!hasEaf) {
@@ -75,6 +77,9 @@ export const App = observer(function App() {
           }
         }
         await store.openSession(conn.adapter);
+        if (conn.selectionKind === "oralAnnotations") {
+          store.openOralAnnotationsViewer();
+        }
       } catch (e) {
         if (!cancelled) setConnectError(e instanceof Error ? e.message : String(e));
       }
@@ -131,12 +136,15 @@ export const App = observer(function App() {
   // The hidden provider instance has no UI — it only answers getTabs.
   if (providerMode) return null;
 
-  // Embedded plugin path: the Annotations pane (toolbar + grid, flipping to the
-  // segmenter/recorders), State A, or a connecting notice.
+  // Embedded plugin path: the Oral Annotations viewer, the Annotations pane
+  // (toolbar + grid, flipping to the segmenter/recorders), State A, or a
+  // connecting notice.
   if (embedded) {
     return (
       <ErrorBoundary>
-        {store.segmenter ? (
+        {store.oralViewer ? (
+          <OralAnnotationsViewerView store={store} />
+        ) : store.segmenter ? (
           <AnnotationsPaneView store={store} />
         ) : startMediaName ? (
           <StartAnnotatingView

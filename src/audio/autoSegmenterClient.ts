@@ -3,6 +3,24 @@ import type { AutoSegmenterRequest, AutoSegmenterResponse } from "./autoSegmente
 import type { Envelope } from "./EnvelopeCache";
 
 /**
+ * Deep-plain copy of an envelope so it survives `postMessage`'s structured
+ * clone. The envelope handed in may be a MobX-observable Proxy (it's a store
+ * field), and structured clone throws `DataCloneError` on proxies. Rebuilding
+ * with fresh Float32Arrays + plain objects strips the proxy wrappers.
+ */
+function toPlainEnvelope(envelope: Envelope): Envelope {
+  return {
+    channels: envelope.channels.map((c) => ({
+      min: Float32Array.from(c.min),
+      max: Float32Array.from(c.max),
+    })),
+    samplesPerMs: envelope.samplesPerMs,
+    sampleRate: envelope.sampleRate,
+    durationSec: envelope.durationSec,
+  };
+}
+
+/**
  * App-side driver for the auto-segmenter. Runs the (potentially long)
  * natural-breaks search in {@link autoSegmenter.worker} off the UI thread and
  * resolves with the boundary seconds, forwarding progress fractions (0→1) as
@@ -43,7 +61,7 @@ export function runAutoSegmenter(
       worker.terminate();
       reject(new Error(event.message || "Auto-segmenter worker failed."));
     };
-    const request: AutoSegmenterRequest = { envelope, settings };
+    const request: AutoSegmenterRequest = { envelope: toPlainEnvelope(envelope), settings };
     worker.postMessage(request);
   });
 }

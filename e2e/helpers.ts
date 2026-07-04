@@ -78,6 +78,36 @@ export async function readIdbFileBytes(page: Page, name: string): Promise<Uint8A
   return new Uint8Array(bytes);
 }
 
+/**
+ * Write a file straight into the app's IndexedDB store, bypassing the UI —
+ * for pre-seeding fixture state (e.g. an oral-annotation WAV "already
+ * recorded" by a prior session) that the app has no in-browser flow to
+ * produce yet. Matches the `FileRecord` shape `IndexedDbAdapter` itself
+ * writes, so the app reads it back exactly as if it had written it.
+ */
+export async function writeIdbFileBytes(
+  page: Page,
+  name: string,
+  bytes: Uint8Array,
+): Promise<void> {
+  await page.evaluate(
+    ({ dbName, store, fileName, data }) => {
+      return new Promise<void>((resolve, reject) => {
+        const openReq = indexedDB.open(dbName);
+        openReq.onerror = () => reject(openReq.error);
+        openReq.onsuccess = () => {
+          const db = openReq.result;
+          const tx = db.transaction(store, "readwrite");
+          tx.objectStore(store).put({ data: new Uint8Array(data), modifiedMs: 0 }, fileName);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        };
+      });
+    },
+    { dbName: DB_NAME, store: FILES_STORE, fileName: name, data: Array.from(bytes) },
+  );
+}
+
 export async function readIdbFileText(page: Page, name: string): Promise<string> {
   return new TextDecoder().decode(await readIdbFileBytes(page, name));
 }

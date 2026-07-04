@@ -2,13 +2,15 @@
 import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
 import { useEffect, useRef, useState } from "react";
-import IconButton from "@mui/material/IconButton";
 import { t } from "../../l10n";
 import { SELECTED_SEGMENT_HIGHLIGHT_COLOR } from "../../model/SayMoreConstants";
 import type { RecorderViewModel } from "../../state/recorder/RecorderViewModel";
 import type { Viewport } from "../waveform/WaveformSurface";
 import { layoutCells, newSegmentRect, type CellRect } from "./cellLayout";
 import { drawMiniWaveform, miniWaveformFromWav } from "./miniWaveform";
+import playIconUrl from "./icons/PlaySegment.png";
+import rerecordIconUrl from "./icons/RerecordOralAnnotation.png";
+import eraseIconUrl from "./icons/RecordErase.png";
 
 const MINI_WAVEFORM_COLOR = "#2e7d32";
 
@@ -120,42 +122,38 @@ const AnnotationCell = observer(function AnnotationCell(props: {
         <canvas ref={canvasRef} width={canvasWidth} height={height} css={canvasCss} />
       )}
 
-      {hovered && !cell.ignored && (
-        <div css={hoverBarCss}>
-          <IconButton
-            size="small"
-            sx={hoverButtonSx}
-            title={t("recorder.playAnnotation", "Play the recording")}
-            disabled={!cell.annotated}
-            onClick={() => vm.playAnnotation(rect.index)}
-          >
-            🔊
-          </IconButton>
-          <IconButton
-            size="small"
-            sx={hoverButtonSx}
-            title={t("recorder.playSource", "Play the source")}
-            onClick={() => vm.playSourceOf(rect.index)}
-          >
-            ▶
-          </IconButton>
+      {/* Always visible once annotated (SayMore draws it persistently, not hover-only). */}
+      {cell.annotated && (
+        <button
+          type="button"
+          data-testid={`cell-play-${rect.index}`}
+          title={t("recorder.playAnnotation", "Play the recording")}
+          onClick={() => vm.playAnnotation(rect.index)}
+          css={iconButtonCss("bottom", "left")}
+        >
+          <img src={playIconUrl} alt="" width={14} height={14} />
+        </button>
+      )}
+
+      {hovered && cell.annotated && (
+        <>
           <ReRecordButton vm={vm} index={rect.index} />
-          <IconButton
-            size="small"
-            sx={hoverButtonSx}
+          <button
+            type="button"
+            data-testid={`cell-erase-${rect.index}`}
             title={t("recorder.erase", "Erase")}
-            disabled={!cell.annotated}
             onClick={handleErase}
+            css={iconButtonCss("top", "right")}
           >
-            🗑
-          </IconButton>
-        </div>
+            <img src={eraseIconUrl} alt="" width={14} height={14} />
+          </button>
+        </>
       )}
     </div>
   );
 });
 
-/** Press-and-hold re-record on one cell — same abort-on-capture-loss semantics as ListenSpeakButtons. */
+/** Press-and-hold re-record on one cell — same abort-on-capture-loss semantics as ListenButton/SpeakButton. */
 function ReRecordButton(props: { vm: RecorderViewModel; index: number }) {
   const { vm, index } = props;
   const heldRef = useRef(false);
@@ -179,17 +177,18 @@ function ReRecordButton(props: { vm: RecorderViewModel; index: number }) {
   }
 
   return (
-    <IconButton
-      size="small"
-      sx={hoverButtonSx}
+    <button
+      type="button"
+      data-testid={`cell-rerecord-${index}`}
       title={t("recorder.reRecord", "Press and hold to re-record")}
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
       onPointerCancel={onCaptureLost}
       onLostPointerCapture={onCaptureLost}
+      css={iconButtonCss("bottom", "right")}
     >
-      🎙
-    </IconButton>
+      <img src={rerecordIconUrl} alt="" width={14} height={14} draggable={false} />
+    </button>
   );
 }
 
@@ -199,22 +198,23 @@ const canvasCss = css`
   height: 100%;
 `;
 
-const hoverBarCss = css`
-  position: absolute;
-  bottom: 2px;
-  left: 2px;
-  right: 2px;
-  display: flex;
-  justify-content: center;
-  gap: 2px;
-  background: rgba(255, 255, 255, 0.85);
-  border-radius: 3px;
-`;
-
-const hoverButtonSx = {
-  width: 20,
-  height: 20,
-  p: 0,
-  fontSize: 11,
-  "&.Mui-disabled": { opacity: 0.4 },
-} as const;
+function iconButtonCss(vAlign: "top" | "bottom", hAlign: "left" | "right") {
+  return css`
+    position: absolute;
+    ${vAlign}: 2px;
+    ${hAlign}: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid #90a4ae;
+    border-radius: 3px;
+    background: #fff;
+    cursor: pointer;
+    &:hover {
+      background: #eef6ee;
+    }
+  `;
+}

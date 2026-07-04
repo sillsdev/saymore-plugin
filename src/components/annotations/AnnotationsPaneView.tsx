@@ -168,15 +168,18 @@ const GridMode = observer(function GridMode(props: { store: ProjectStore }) {
 
 /**
  * "Oral Annotations Tools ▾" — launches the Careful Speech / Oral Translation
- * recorder over the current document. Enabled once the document has at least
- * one segment (there's nothing to annotate otherwise).
+ * recorder over the current document. Enabled once a document is loaded;
+ * recording on an unsegmented file is valid SayMore behavior (it records into
+ * the virtual new-segment slot), so there's no segment-count gate.
  */
 const OralAnnotationToolsMenu = observer(function OralAnnotationToolsMenu(props: {
   store: ProjectStore;
 }) {
   const { store } = props;
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
-  const hasSegments = (store.document?.segments.length ?? 0) > 0;
+  // Recording is valid on an unsegmented file too (it records into the virtual
+  // new-segment slot) — only disable when there's no document to record at all.
+  const hasDocument = store.document !== undefined;
   const label = t("annotations.oralTools", "Oral Annotations Tools");
 
   function openRecorder(kind: "Careful" | "Translation"): void {
@@ -188,10 +191,8 @@ const OralAnnotationToolsMenu = observer(function OralAnnotationToolsMenu(props:
     <>
       <Button
         variant="outlined"
-        disabled={!hasSegments}
-        title={
-          hasSegments ? undefined : t("annotations.oralToolsNeedsSegments", "Add segments first")
-        }
+        disabled={!hasDocument}
+        title={hasDocument ? undefined : t("annotations.oralToolsNeedsDocument", "Loading…")}
         onClick={(e) => setAnchorEl(e.currentTarget)}
         sx={{
           textTransform: "none",

@@ -40,7 +40,7 @@ export const BoundaryLayer = observer(function BoundaryLayer(props: {
 
   function onBoundaryPointerDown(e: React.PointerEvent, index: number): void {
     e.stopPropagation();
-    (e.target as Element).setPointerCapture(e.pointerId);
+    (e.target as Element).setPointerCapture?.(e.pointerId);
     vm.selectBoundaryAt(segments[index].range.end);
     setDrag({
       index,
@@ -66,7 +66,23 @@ export const BoundaryLayer = observer(function BoundaryLayer(props: {
   function onBoundaryPointerUp(e: React.PointerEvent): void {
     if (!drag) return;
     (e.target as Element).releasePointerCapture?.(e.pointerId);
-    if (drag.moved) vm.moveSelectedBoundaryTo(drag.currentSec);
+    if (drag.moved) {
+      // Mirror the Delete-key path (ManualSegmenterView): moving a boundary
+      // that touches an existing oral-annotation recording needs the same
+      // confirm — declining leaves the model untouched, so the boundary
+      // simply renders back at its pre-drag position once `drag` clears.
+      if (
+        !vm.requiresPermanenceConfirm(drag.index) ||
+        window.confirm(
+          t(
+            "segmenter.confirmMove",
+            "A segment here has an oral annotation recording. Move this boundary anyway?",
+          ),
+        )
+      ) {
+        vm.moveSelectedBoundaryTo(drag.currentSec);
+      }
+    }
     setDrag(null);
   }
 

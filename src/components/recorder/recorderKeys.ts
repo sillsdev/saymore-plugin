@@ -60,6 +60,9 @@ export function recorderKeyAction(
     return modifiers.shiftKey ? "redo" : "undo";
   }
   if (modifiers.ctrlKey && (key === "y" || key === "Y")) return "redo";
+  // SayMore also accepts plain Z (no modifier) as undo — the hover Undo
+  // button's tooltip reads "Ctrl-Z or Z".
+  if (key === "z" || key === "Z") return "undo";
 
   return undefined;
 }

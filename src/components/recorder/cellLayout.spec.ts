@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { makeTimeRange } from "../../model/TimeRange";
 import type { SegmentCellState } from "../../state/recorder/recorderTypes";
-import { layoutCells, newSegmentRect, type SecondsToPx } from "./cellLayout";
+import { layoutCells, newSegmentRect, sameTimeRange, type SecondsToPx } from "./cellLayout";
 
 const cell = (
   start: number,
@@ -47,5 +47,23 @@ describe("newSegmentRect", () => {
 
   it("is zero-width when the boundary hasn't moved past the last segment yet", () => {
     expect(newSegmentRect(3, 3, viewportAt(80))).toEqual({ left: 240, width: 0 });
+  });
+});
+
+describe("sameTimeRange", () => {
+  it("matches identical ranges", () => {
+    expect(sameTimeRange(makeTimeRange(1, 2), makeTimeRange(1, 2))).toBe(true);
+  });
+
+  it("tolerates float noise", () => {
+    expect(sameTimeRange(makeTimeRange(1, 2), makeTimeRange(1 + 1e-9, 2 - 1e-9))).toBe(true);
+  });
+
+  it("rejects a genuinely different range", () => {
+    expect(sameTimeRange(makeTimeRange(1, 2), makeTimeRange(1, 2.1))).toBe(false);
+  });
+
+  it("is false when there's nothing to compare against (nothing undoable)", () => {
+    expect(sameTimeRange(makeTimeRange(1, 2), undefined)).toBe(false);
   });
 });

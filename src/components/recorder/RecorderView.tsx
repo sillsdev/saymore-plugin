@@ -13,19 +13,29 @@ import {
   type WaveformSurfaceApi,
 } from "../waveform/WaveformSurface";
 import { AnnotationCellsLayer } from "./AnnotationCellsLayer";
-import { ListenSpeakButtons } from "./ListenSpeakButtons";
+import { ListenButton, SpeakButton } from "./ListenSpeakButtons";
 import { NewSegmentBoundaryLayer } from "./NewSegmentBoundaryLayer";
 import { PeakMeter } from "./PeakMeter";
+import { SourceSegmentControls } from "./SourceSegmentControls";
 import { recorderKeyAction, type RecorderAction } from "./recorderKeys";
 import {
   NEW_BOUNDARY_NUDGE_MS,
   PIXELS_PER_SECOND_AT_100,
   SELECTED_SEGMENT_HIGHLIGHT_COLOR,
 } from "../../model/SayMoreConstants";
-import { LAMETA_BLUE, LAMETA_DARK_GREEN, LAMETA_GREEN, LAMETA_UI_FONT } from "../../lametaTheme";
+import {
+  LAMETA_BLUE,
+  LAMETA_DARK_BLUE,
+  LAMETA_DARK_GREEN,
+  LAMETA_GREEN,
+  LAMETA_UI_FONT,
+} from "../../lametaTheme";
 
-/** Height of the annotation cells strip below the waveform. */
-const CELLS_ROW_HEIGHT = 72;
+/** Height of the annotation cells strip below the waveform (and its left-column twin). */
+const CELLS_ROW_HEIGHT = 104;
+/** Fixed width of the left label+button column (identical in both grid rows). */
+const LEFT_COLUMN_WIDTH = 96;
+const ROW_BORDER = "1px solid #b7d59b";
 
 /**
  * The Careful Speech / Oral Translation recorder: SayMore's two-row layout —
@@ -153,29 +163,24 @@ export const RecorderView = observer(function RecorderView(props: { store: Proje
         </span>
       </div>
 
+      {/* Strict 2x2 table: [source label+Listen] [source waveform] over
+          [annotation label+Speak+meter] [annotation cells], full-height
+          separators on both axes so it reads as a four-cell table. */}
       <div
         css={css`
-          display: flex;
+          display: grid;
+          grid-template-columns: ${LEFT_COLUMN_WIDTH}px 1fr;
+          grid-template-rows: auto auto;
         `}
       >
-        <div
-          css={css`
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 8px;
-            background: #f4f7f0;
-            border-right: 1px solid #b7d59b;
-          `}
-        >
-          <ListenSpeakButtons vm={vm} />
-          <PeakMeter vm={vm} />
-        </div>
+        <RowLabelCell background="#eef2fa" borderRight borderBottom>
+          <RowLabel color={LAMETA_DARK_BLUE}>{t("recorder.sourceAudio", "Source Audio")}</RowLabel>
+          <ListenButton vm={vm} />
+        </RowLabelCell>
 
         <div
           css={css`
-            flex: 1;
+            border-bottom: ${ROW_BORDER};
             min-width: 0;
           `}
         >
@@ -187,31 +192,42 @@ export const RecorderView = observer(function RecorderView(props: { store: Proje
             minPxPerSec={PIXELS_PER_SECOND_AT_100}
             overlay={(viewport) => <RecorderOverlay vm={vm} viewport={viewport} />}
           />
-          <div
-            data-testid="recorder-cells-row"
-            css={css`
-              position: relative;
-              height: ${CELLS_ROW_HEIGHT}px;
-              overflow: hidden;
-              background: #fafafa;
-              border-top: 1px solid #b7d59b;
-            `}
-          >
-            {cellsViewport && (
-              <div
-                css={css`
-                  position: relative;
-                  height: 100%;
-                `}
-                style={{
-                  width: cellsViewport.contentWidth,
-                  transform: `translateX(${-cellsViewport.scrollLeft}px)`,
-                }}
-              >
-                <AnnotationCellsLayer vm={vm} viewport={cellsViewport} height={CELLS_ROW_HEIGHT} />
-              </div>
-            )}
-          </div>
+        </div>
+
+        <RowLabelCell background="#e9f4dc" borderRight>
+          <RowLabel color={LAMETA_DARK_GREEN}>
+            {vm.kind === "Careful"
+              ? t("recorder.carefulSpeech", "Careful Speech")
+              : t("recorder.oralTranslation", "Oral Translation")}
+          </RowLabel>
+          <SpeakButton vm={vm} />
+          <PeakMeter vm={vm} />
+        </RowLabelCell>
+
+        <div
+          data-testid="recorder-cells-row"
+          css={css`
+            position: relative;
+            height: ${CELLS_ROW_HEIGHT}px;
+            overflow: hidden;
+            background: #e4f0d5;
+            min-width: 0;
+          `}
+        >
+          {cellsViewport && (
+            <div
+              css={css`
+                position: relative;
+                height: 100%;
+              `}
+              style={{
+                width: cellsViewport.contentWidth,
+                transform: `translateX(${-cellsViewport.scrollLeft}px)`,
+              }}
+            >
+              <AnnotationCellsLayer vm={vm} viewport={cellsViewport} height={CELLS_ROW_HEIGHT} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -255,10 +271,55 @@ function runRecorderAction(vm: RecorderViewModel, action: RecorderAction): void 
   }
 }
 
+/** The label+button cell in the fixed-width left column, identical in both grid rows. */
+function RowLabelCell(props: {
+  background: string;
+  borderRight?: boolean;
+  borderBottom?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      css={css`
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        padding: 6px 4px;
+        ${props.borderRight ? `border-right: ${ROW_BORDER};` : ""}
+        ${props.borderBottom ? `border-bottom: ${ROW_BORDER};` : ""}
+      `}
+      style={{ background: props.background }}
+    >
+      {props.children}
+    </div>
+  );
+}
+
+function RowLabel(props: { color: string; children: React.ReactNode }) {
+  return (
+    <div
+      css={css`
+        font-size: 11px;
+        font-weight: 700;
+        text-align: center;
+        line-height: 1.2;
+      `}
+      style={{ color: props.color }}
+    >
+      {props.children}
+    </div>
+  );
+}
+
 /**
- * Current-segment (or virtual new-boundary) Moccasin highlight, plus a light
- * tint over the unsegmented remainder so it reads as distinct from annotated
- * source — both positioned in the same content coordinates as the wave.
+ * The blue-family source row: a medium-blue wash over the segmented region
+ * (SayMore's segmented-background color) and a lighter/greyer wash over the
+ * unsegmented remainder, the current-segment (or virtual new-boundary)
+ * Moccasin highlight, the draggable new-boundary line, and the per-segment
+ * play/Ignored/Undo controls — all positioned in the wave's content
+ * coordinates.
  */
 const RecorderOverlay = observer(function RecorderOverlay(props: {
   vm: RecorderViewModel;
@@ -267,7 +328,7 @@ const RecorderOverlay = observer(function RecorderOverlay(props: {
   const { vm, viewport } = props;
   const cells = vm.cells;
   const lastSegmentEnd = cells.length > 0 ? cells[cells.length - 1].range.end : 0;
-  const unsegmentedX = viewport.secondsToPx(lastSegmentEnd);
+  const segmentedX = viewport.secondsToPx(lastSegmentEnd);
 
   const currentCell = cells.find((c) => c.isCurrent);
   const highlight =
@@ -283,11 +344,22 @@ const RecorderOverlay = observer(function RecorderOverlay(props: {
         css={css`
           position: absolute;
           top: 0;
+          left: 0;
           height: ${viewport.height}px;
-          background: rgba(96, 125, 139, 0.08);
+          background: rgba(61, 94, 144, 0.12);
           pointer-events: none;
         `}
-        style={{ left: unsegmentedX, width: Math.max(0, viewport.contentWidth - unsegmentedX) }}
+        style={{ width: segmentedX }}
+      />
+      <div
+        css={css`
+          position: absolute;
+          top: 0;
+          height: ${viewport.height}px;
+          background: rgba(120, 130, 140, 0.1);
+          pointer-events: none;
+        `}
+        style={{ left: segmentedX, width: Math.max(0, viewport.contentWidth - segmentedX) }}
       />
 
       {highlight && (
@@ -310,6 +382,7 @@ const RecorderOverlay = observer(function RecorderOverlay(props: {
         />
       )}
 
+      <SourceSegmentControls vm={vm} viewport={viewport} />
       <NewSegmentBoundaryLayer vm={vm} viewport={viewport} />
     </>
   );

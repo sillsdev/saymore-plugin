@@ -50,8 +50,12 @@ describe("recorderKeyAction", () => {
     ).toBe("redo");
   });
 
-  it("plain z/y (no modifier) do nothing", () => {
-    expect(recorderKeyAction("z", "down", false, "Listen", false)).toBeUndefined();
+  it("plain Z (no modifier) also undoes, matching the hover Undo button's tooltip", () => {
+    expect(recorderKeyAction("z", "down", false, "Listen", false)).toBe("undo");
+    expect(recorderKeyAction("Z", "down", false, "Listen", false)).toBe("undo");
+  });
+
+  it("plain y (no modifier) does nothing", () => {
     expect(recorderKeyAction("y", "down", false, "Listen", false)).toBeUndefined();
   });
 

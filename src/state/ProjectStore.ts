@@ -179,6 +179,9 @@ export class ProjectStore {
       this.segmenter = segmenter;
       this.oralIndex = oralIndex;
       this.startAnnotatingMedia = undefined;
+      // Grid-first: opening a session lands on the transcription grid (John's
+      // decision). The segmenter/recorders are reached from the grid's toolbar.
+      this.annotationsView = "grid";
     });
   }
 

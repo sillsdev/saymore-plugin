@@ -18,10 +18,10 @@ function query(over: Partial<TabProviderQuery["file"]>): TabProviderQuery {
 }
 
 describe("computeTabs (pure policy)", () => {
-  it("a selected .eaf → one default Segments tab", () => {
+  it("a selected .eaf → one default Annotations tab", () => {
     expect(
       computeTabs({ extension: "eaf", lametaType: "Unknown", hasAnnotationsEaf: false }),
-    ).toEqual([{ id: "segments", label: "Segments", claimDefault: true }]);
+    ).toEqual([{ id: "annotations", label: "Annotations", claimDefault: true }]);
   });
 
   it("audio with no .eaf → one Start Annotating tab (not default)", () => {
@@ -56,14 +56,14 @@ describe("resolveSaymoreTabs (live companion check)", () => {
     expect(tabs).toEqual([]);
   });
 
-  it("a selected .eaf → Segments tab, without touching companions", async () => {
+  it("a selected .eaf → Annotations tab, without touching companions", async () => {
     const exists = vi.fn(async () => false);
     const tabs = await resolveSaymoreTabs(
       query({ name: "new.wav.annotations.eaf", extension: "eaf", lametaType: "Unknown" }),
       { exists },
     );
     expect(exists).not.toHaveBeenCalled();
-    expect(tabs).toEqual([{ id: "segments", label: "Segments", claimDefault: true }]);
+    expect(tabs).toEqual([{ id: "annotations", label: "Annotations", claimDefault: true }]);
   });
 
   it("a companions.exists failure is treated as absent (returns the button)", async () => {

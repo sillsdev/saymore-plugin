@@ -11,6 +11,7 @@ import { SegmenterViewModel } from "./SegmenterViewModel";
 import { RecorderViewModel } from "./recorder/RecorderViewModel";
 import { RecordingFileStore } from "./recorder/RecordingFileStore";
 import { regenerateCombinedOralWav } from "./recorder/combinedWav";
+import { OralAnnotationsViewerModel } from "./recorder/OralAnnotationsViewerModel";
 import type { RecorderKind } from "./recorder/recorderTypes";
 import { SpyRecorder, type RecorderService } from "../audio/recording/Recorder";
 import { MicRecorder } from "../audio/recording/MicRecorder";
@@ -69,6 +70,8 @@ export class ProjectStore {
   recorder: RecorderViewModel | undefined = undefined;
   /** Combined-WAV regeneration progress (0..1) while it runs on recorder exit; else undefined. */
   combinedWavProgress: number | undefined = undefined;
+  /** The Oral Annotations viewer, when the combined `.oralAnnotations.wav` is open. */
+  oralViewer: OralAnnotationsViewerModel | undefined = undefined;
 
   /**
    * State A (standalone): media is loaded (envelope ready) but has no `.eaf` yet
@@ -308,6 +311,35 @@ export class ProjectStore {
   }
 
   /**
+   * Open the Oral Annotations viewer for the combined `<media>.oralAnnotations.wav`
+   * (plugin: the file's tab; harness: the OralAnnotations tree node). Builds the
+   * viewer model and kicks off its staleness-aware load (auto-regenerates when the
+   * combined file is missing or older than the eaf / per-segment WAVs).
+   */
+  openOralAnnotationsViewer(): void {
+    const document = this.document;
+    const oralIndex = this.oralIndex;
+    const adapter = this.adapter;
+    if (!document || !oralIndex || !adapter) return;
+    this.disposeRecorder();
+    this.oralViewer?.dispose();
+    const viewer = new OralAnnotationsViewerModel({
+      adapter,
+      mediaFileName: this.mediaFileName,
+      document,
+      oralIndex,
+      decodeMedia: (bytes) => this.decodeMediaToSource(bytes),
+    });
+    this.oralViewer = viewer;
+    void viewer.load();
+  }
+
+  private disposeOralViewer(): void {
+    this.oralViewer?.dispose();
+    this.oralViewer = undefined;
+  }
+
+  /**
    * Start Annotating → "Use manual segmentation tool" (standalone). Seed an empty
    * SayMore-compatible `.eaf` beside the media (unless one exists), then open the
    * segmenter on it.
@@ -350,6 +382,7 @@ export class ProjectStore {
 
   private reset(): void {
     this.disposeRecorder();
+    this.disposeOralViewer();
     this.segmenter?.dispose();
     if (this.mediaUrl && typeof URL !== "undefined" && URL.revokeObjectURL) {
       URL.revokeObjectURL(this.mediaUrl);

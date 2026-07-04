@@ -1,5 +1,6 @@
 import { t } from "../l10n";
 import { annotationsEafName } from "../fs/SessionFolder";
+import { ORAL_ANNOTATIONS_WAV_SUFFIX } from "../model/SayMoreConstants";
 import type { PluginCompanionsApiV1, TabDescriptor, TabProviderQuery } from "./PluginApiTypes";
 
 /** Inputs the pure tab policy needs about the currently-selected file. */
@@ -10,12 +11,15 @@ export interface TabQuery {
   lametaType: string;
   /** Whether `<media>.annotations.eaf` currently exists (resolved LIVE per query). */
   hasAnnotationsEaf: boolean;
+  /** Whether the file is a generated `<media>.oralAnnotations.wav` (by name). */
+  isOralAnnotations: boolean;
 }
 
 /**
  * SayMore's tab policy — the single source of truth the provider returns to the host on
  * EVERY selection (query-per-selection, uncached; the answer is state-dependent):
  *
+ *  - a `<media>.oralAnnotations.wav`  → one "Oral Annotations" tab (the viewer), default
  *  - a `.eaf` is selected            → one "Annotations" tab (grid + segmenter + recorders), default
  *  - an Audio file with no `.eaf` yet → one "SayMore: Start Annotating" tab (the button)
  *  - an Audio file that already has an `.eaf` → NO tab (annotate via the `.eaf`'s own tab)
@@ -25,6 +29,15 @@ export interface TabQuery {
  * caller (see {@link resolveSaymoreTabs}).
  */
 export function computeTabs(query: TabQuery): TabDescriptor[] {
+  if (query.isOralAnnotations) {
+    return [
+      {
+        id: "oral-annotations",
+        label: t("tab.oralAnnotations", "Oral Annotations"),
+        claimDefault: true,
+      },
+    ];
+  }
   if (query.extension === "eaf") {
     return [{ id: "annotations", label: t("tab.annotations", "Annotations"), claimDefault: true }];
   }
@@ -48,14 +61,15 @@ export async function resolveSaymoreTabs(
 ): Promise<TabDescriptor[]> {
   const extension = query.file.extension.toLowerCase();
   const { lametaType, name } = query.file;
+  const isOralAnnotations = name.toLowerCase().endsWith(ORAL_ANNOTATIONS_WAV_SUFFIX.toLowerCase());
 
   let hasAnnotationsEaf = false;
-  if (extension !== "eaf" && lametaType === "Audio") {
+  if (!isOralAnnotations && extension !== "eaf" && lametaType === "Audio") {
     try {
       hasAnnotationsEaf = await companions.exists(annotationsEafName(name));
     } catch {
       hasAnnotationsEaf = false;
     }
   }
-  return computeTabs({ extension, lametaType, hasAnnotationsEaf });
+  return computeTabs({ extension, lametaType, hasAnnotationsEaf, isOralAnnotations });
 }

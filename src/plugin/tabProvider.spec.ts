@@ -20,25 +20,56 @@ function query(over: Partial<TabProviderQuery["file"]>): TabProviderQuery {
 describe("computeTabs (pure policy)", () => {
   it("a selected .eaf → one default Annotations tab", () => {
     expect(
-      computeTabs({ extension: "eaf", lametaType: "Unknown", hasAnnotationsEaf: false }),
+      computeTabs({
+        extension: "eaf",
+        lametaType: "Unknown",
+        hasAnnotationsEaf: false,
+        isOralAnnotations: false,
+      }),
     ).toEqual([{ id: "annotations", label: "Annotations", claimDefault: true }]);
+  });
+
+  it("a .oralAnnotations.wav → one default Oral Annotations tab (before the audio rules)", () => {
+    expect(
+      computeTabs({
+        extension: "wav",
+        lametaType: "Audio",
+        hasAnnotationsEaf: false,
+        isOralAnnotations: true,
+      }),
+    ).toEqual([{ id: "oral-annotations", label: "Oral Annotations", claimDefault: true }]);
   });
 
   it("audio with no .eaf → one Start Annotating tab (not default)", () => {
     expect(
-      computeTabs({ extension: "wav", lametaType: "Audio", hasAnnotationsEaf: false }),
+      computeTabs({
+        extension: "wav",
+        lametaType: "Audio",
+        hasAnnotationsEaf: false,
+        isOralAnnotations: false,
+      }),
     ).toEqual([{ id: "start", label: "SayMore: Start Annotating" }]);
   });
 
   it("audio that already has an .eaf → NO tab", () => {
-    expect(computeTabs({ extension: "wav", lametaType: "Audio", hasAnnotationsEaf: true })).toEqual(
-      [],
-    );
+    expect(
+      computeTabs({
+        extension: "wav",
+        lametaType: "Audio",
+        hasAnnotationsEaf: true,
+        isOralAnnotations: false,
+      }),
+    ).toEqual([]);
   });
 
   it("a non-audio, non-eaf file → no tabs", () => {
     expect(
-      computeTabs({ extension: "png", lametaType: "Image", hasAnnotationsEaf: false }),
+      computeTabs({
+        extension: "png",
+        lametaType: "Image",
+        hasAnnotationsEaf: false,
+        isOralAnnotations: false,
+      }),
     ).toEqual([]);
   });
 });
@@ -54,6 +85,18 @@ describe("resolveSaymoreTabs (live companion check)", () => {
   it("audio: returns no tab when the .eaf already exists", async () => {
     const tabs = await resolveSaymoreTabs(query({ name: "new.wav" }), { exists: async () => true });
     expect(tabs).toEqual([]);
+  });
+
+  it("a .oralAnnotations.wav → Oral Annotations tab, without touching companions", async () => {
+    const exists = vi.fn(async () => false);
+    const tabs = await resolveSaymoreTabs(
+      query({ name: "new.wav.oralAnnotations.wav", extension: "wav", lametaType: "Audio" }),
+      { exists },
+    );
+    expect(exists).not.toHaveBeenCalled();
+    expect(tabs).toEqual([
+      { id: "oral-annotations", label: "Oral Annotations", claimDefault: true },
+    ]);
   });
 
   it("a selected .eaf → Annotations tab, without touching companions", async () => {

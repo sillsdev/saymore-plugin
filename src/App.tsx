@@ -5,9 +5,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ProjectStore } from "./state/ProjectStore";
 import { OpenScreen } from "./components/shell/OpenScreen";
 import { StartAnnotatingView } from "./components/shell/StartAnnotatingView";
+import { FileConversionView } from "./components/shell/FileConversionView";
 import { ManualSegmenterView } from "./components/segmenter/ManualSegmenterView";
 import { AnnotationsPaneView } from "./components/annotations/AnnotationsPaneView";
 import { OralAnnotationsViewerView } from "./components/oralAnnotations/OralAnnotationsViewerView";
+import { RecorderView } from "./components/recorder/RecorderView";
 import { ErrorBoundary } from "./components/shell/ErrorBoundary";
 import { LAMETA_UI_FONT } from "./lametaTheme";
 import {
@@ -17,7 +19,8 @@ import {
 } from "./plugin/connectPlugin";
 import { connectToLameta, serveTabProvider } from "./plugin/lametaPluginClient";
 import { resolveSaymoreTabs } from "./plugin/tabProvider";
-import { annotationsEafName } from "./fs/SessionFolder";
+import { annotationsEafName, standardAudioName } from "./fs/SessionFolder";
+import { STANDARD_AUDIO_FFMPEG_ARGS } from "./model/SayMoreConstants";
 import { createEafFromTemplate, serializeEaf } from "./model/eaf/EafDocument";
 import { eafTemplateXml } from "./model/eaf/eafTemplate";
 import { autoSegmentToEaf } from "./audio/autoSegmentToEaf";
@@ -42,6 +45,13 @@ export const App = observer(function App() {
   const [providerMode, setProviderMode] = useState(false);
   // Set when the selected Audio file has no `.eaf` yet → show State A (Start Annotating).
   const [startMediaName, setStartMediaName] = useState<string | undefined>(undefined);
+  // Set when a non-WAV media file was selected with no annotations yet → offer file
+  // conversion first (produce `<base>_StandardAudio.wav`, then reselect it).
+  const [convertMediaName, setConvertMediaName] = useState<string | undefined>(undefined);
+  // Set when this instance is a dedicated recorder tab on a `.oralAnnotations.wav`
+  // selection ("careful-speech" / "oral-translation") → render RecorderView alone,
+  // with no grid to exit back to.
+  const [oralRecorderTab, setOralRecorderTab] = useState(false);
   const connRef = useRef<PluginConnection | undefined>(undefined);
 
   useEffect(() => {
@@ -72,13 +82,41 @@ export const App = observer(function App() {
           const hasEaf = await conn.adapter.exists(annotationsEafName(conn.selectedFileName));
           if (cancelled) return;
           if (!hasEaf) {
-            setStartMediaName(conn.selectedFileName);
+            if (conn.extension === "wav") {
+              setStartMediaName(conn.selectedFileName);
+              return;
+            }
+            // Non-WAV media: SayMore annotates a standard WAV copy. If we already made one,
+            // reselect it and let its own tab flow take over; otherwise offer conversion.
+            const wavName = standardAudioName(conn.selectedFileName);
+            const wavExists = await conn.adapter.exists(wavName);
+            if (cancelled) return;
+            if (wavExists) {
+              try {
+                await conn.api.selectFile(wavName);
+                return;
+              } catch {
+                /* host without selectFile: fall through to the conversion offer */
+              }
+            }
+            setConvertMediaName(conn.selectedFileName);
             return;
           }
         }
         await store.openSession(conn.adapter);
+        if (cancelled) return;
+        // Route the pane by which provider-claimed tab this iframe is (see
+        // tabProvider.ts). A missing tabId (pre-provider host) gets each
+        // selection's default: the viewer / the grid.
         if (conn.selectionKind === "oralAnnotations") {
-          store.openOralAnnotationsViewer();
+          if (conn.tabId === "careful-speech" || conn.tabId === "oral-translation") {
+            setOralRecorderTab(true);
+            store.openRecorder(conn.tabId === "careful-speech" ? "Careful" : "Translation");
+          } else {
+            store.openOralAnnotationsViewer();
+          }
+        } else if (conn.selectionKind === "eaf" && conn.tabId === "segments") {
+          store.showSegmenter();
         }
       } catch (e) {
         if (!cancelled) setConnectError(e instanceof Error ? e.message : String(e));
@@ -90,10 +128,11 @@ export const App = observer(function App() {
   }, [embedded, store]);
 
   // State A button: create the SayMore-compatible `<media>.annotations.eaf` (seeded from
-  // the annotation template) beside the media, then reveal the segmenter. Preferred path
-  // (B): ask the host to select the new `.eaf` — it rescans, selects it, and recreates this
-  // iframe on the "Segments" tab (so the code after `selectFile` never runs). Fallback (A):
-  // on a host without `selectFile`, reveal the segmenter inline on this tab.
+  // the annotation template) beside the media, then reveal the annotations UI. Preferred
+  // path (B): ask the host to select the new `.eaf` — it rescans, selects it, and recreates
+  // this iframe on the eaf's default "Transcription & Translation" tab (so the code after
+  // `selectFile` never runs). Fallback (A): on a host without `selectFile`, reveal it
+  // inline on this tab.
   async function handleStartAnnotating(): Promise<void> {
     const conn = connRef.current;
     if (!conn) throw new Error("Not connected to lameta.");
@@ -109,14 +148,51 @@ export const App = observer(function App() {
     } catch {
       setStartMediaName(undefined);
       await store.openSession(conn.adapter);
+      // Mirror the provider's empty-eaf default: manual segmentation starts in
+      // the segmenter (with `selectFile` the host lands on the Segments tab).
+      store.showSegmenter();
+    }
+  }
+
+  // File-conversion screen "Convert": ask the host to run ffmpeg over the selected
+  // non-WAV media, producing `<base>_StandardAudio.wav` beside it (progress 0→1 drives the
+  // bar), then reselect that WAV so the host recreates this iframe on it and the normal
+  // Start Annotating (auto/manual) flow runs. A host without `selectFile` surfaces the
+  // rejection as an error in the conversion view.
+  async function handleConvert(onProgress: (fraction: number) => void): Promise<void> {
+    const conn = connRef.current;
+    if (!conn) throw new Error("Not connected to lameta.");
+    const wavName = standardAudioName(conn.selectedFileName);
+    await conn.api.ffmpeg.run({
+      outputRelPath: wavName,
+      args: STANDARD_AUDIO_FFMPEG_ARGS,
+      onProgress,
+    });
+    await conn.api.selectFile(wavName);
+  }
+
+  // Grid toolbar "Setup Oral Annotation": create the combined
+  // `<media>.oralAnnotations.wav` (source-only until recordings exist), then ask
+  // the host to select it — its Careful Speech / Oral Translation / Combined
+  // Audio tabs appear and the default (Careful Speech) opens. On a host without
+  // `selectFile` the button simply disappears (the file now exists); the user
+  // selects it in lameta's file list.
+  async function handleSetupOralAnnotations(): Promise<void> {
+    const conn = connRef.current;
+    if (!conn) throw new Error("Not connected to lameta.");
+    const combinedRel = await store.setupOralAnnotations();
+    try {
+      await conn.api.selectFile(combinedRel);
+    } catch {
+      /* feature-detect fallback: stay on the grid */
     }
   }
 
   // State A button: run the auto-segmenter over the audio and write the segments into a
-  // SayMore-compatible `<media>.annotations.eaf` BEFORE revealing the segmenter. The eaf
-  // must be complete before `selectFile` because that recreates the iframe on the
-  // "Segments" tab (code after it never runs). Fallback (host without `selectFile`): open
-  // the segmenter inline on this tab, reading back the eaf we just wrote.
+  // SayMore-compatible `<media>.annotations.eaf` BEFORE revealing the annotations UI. The
+  // eaf must be complete before `selectFile` because that recreates the iframe on the
+  // eaf's default tab (code after it never runs). Fallback (host without `selectFile`):
+  // open the annotations UI inline on this tab, reading back the eaf we just wrote.
   async function handleAutoSegment(onProgress: (fraction: number) => void): Promise<void> {
     const conn = connRef.current;
     if (!conn) throw new Error("Not connected to lameta.");
@@ -136,22 +212,30 @@ export const App = observer(function App() {
   // The hidden provider instance has no UI — it only answers getTabs.
   if (providerMode) return null;
 
-  // Embedded plugin path: the Oral Annotations viewer, the Annotations pane
-  // (toolbar + grid, flipping to the segmenter/recorders), State A, or a
-  // connecting notice.
+  // Embedded plugin path: a dedicated recorder tab (Careful Speech / Oral
+  // Translation), the Combined Audio viewer, the Annotations pane (grid or
+  // segmenter per tab), State A, or a connecting notice.
   if (embedded) {
     return (
       <ErrorBoundary>
-        {store.oralViewer ? (
+        {oralRecorderTab ? (
+          store.recorder ? (
+            <RecorderView store={store} />
+          ) : (
+            <PluginConnecting error={connectError ?? store.error} />
+          )
+        ) : store.oralViewer ? (
           <OralAnnotationsViewerView store={store} />
         ) : store.segmenter ? (
-          <AnnotationsPaneView store={store} />
-        ) : startMediaName ? (
-          <StartAnnotatingView
-            mediaFileName={startMediaName}
-            onStart={handleStartAnnotating}
-            onAutoSegment={handleAutoSegment}
+          <AnnotationsPaneView store={store} onSetupOralAnnotations={handleSetupOralAnnotations} />
+        ) : convertMediaName ? (
+          <FileConversionView
+            sourceName={convertMediaName}
+            outputName={standardAudioName(convertMediaName)}
+            onConvert={handleConvert}
           />
+        ) : startMediaName ? (
+          <StartAnnotatingView onStart={handleStartAnnotating} onAutoSegment={handleAutoSegment} />
         ) : (
           <PluginConnecting error={connectError ?? store.error} />
         )}
@@ -168,7 +252,6 @@ export const App = observer(function App() {
           <ManualSegmenterView store={store} />
         ) : store.startAnnotatingMedia ? (
           <StartAnnotatingView
-            mediaFileName={store.startAnnotatingMedia}
             onStart={() => store.startAnnotatingManual()}
             onAutoSegment={(onProgress) => store.autoSegment(onProgress)}
           />

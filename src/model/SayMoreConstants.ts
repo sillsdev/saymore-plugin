@@ -79,3 +79,15 @@ export const NEW_BOUNDARY_NUDGE_MS = 5;
 
 /** Prefer this media file within a session folder when present. */
 export const STANDARD_AUDIO_SUFFIX = "_StandardAudio.wav";
+
+/**
+ * ffmpeg OUTPUT args (passed to `api.ffmpeg.run`) that produce SayMore's
+ * `_StandardAudio.wav` from a non-WAV source. SayMore-parity: drop the video track and
+ * transcode audio to 16-bit PCM, **preserving the source's channel count and sample rate**
+ * (SayMore's "Extract to Standard PCM" is `-vn -codec:a pcm_s16le`; only its MP3 preset
+ * downmixes to mono). The `.wav` output extension supplies the muxer.
+ *
+ * Note: SayMore bumps the codec to `pcm_s24le`/`pcm_f32le` for 24-/32-bit sources; we use
+ * `pcm_s16le` for all inputs, which is SayMore's own default and covers the common case.
+ */
+export const STANDARD_AUDIO_FFMPEG_ARGS = ["-vn", "-codec:a", "pcm_s16le"];

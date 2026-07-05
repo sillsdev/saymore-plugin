@@ -27,6 +27,10 @@ function makeFakeHost(opts: {
     writeSidecar: async () => {},
     listSidecars: async () => [],
     selectFile: async () => {},
+    ffmpeg: {
+      probe: async () => ({ format: {}, streams: [] }),
+      run: async () => {},
+    },
     companions: {
       list: async (subdir?: string) => {
         const entries: { name: string; size: number; mtimeMs: number }[] = [];

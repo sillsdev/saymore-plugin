@@ -70,7 +70,7 @@ export const TranscriptionGrid = observer(function TranscriptionGrid(props: {
             color: #78909c;
           `}
         >
-          {t("grid.empty", "No segments yet. Use “Segment…” to add boundaries.")}
+          {t("grid.empty", "No segments yet. Use the “Segments” tab to add boundaries.")}
         </div>
       )}
 

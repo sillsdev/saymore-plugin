@@ -2,7 +2,6 @@
 import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
 import { useEffect, useRef, useState } from "react";
-import Button from "@mui/material/Button";
 import { t } from "../../l10n";
 import type { ProjectStore } from "../../state/ProjectStore";
 import type { RecorderViewModel } from "../../state/recorder/RecorderViewModel";
@@ -106,10 +105,6 @@ export const RecorderView = observer(function RecorderView(props: { store: Proje
 
   if (!vm) return null; // openRecorder()'s preconditions failed; nothing to drive.
 
-  const title =
-    vm.kind === "Careful"
-      ? t("recorder.titleCareful", "Careful Speech Recorder")
-      : t("recorder.titleTranslation", "Oral Translation Recorder");
   const mediaElement =
     vm.playback instanceof MediaElementPlaybackEngine ? vm.playback.mediaElement : undefined;
 
@@ -123,45 +118,9 @@ export const RecorderView = observer(function RecorderView(props: { store: Proje
         outline: none;
       `}
     >
-      <div
-        css={css`
-          display: flex;
-          align-items: center;
-          padding: 6px 10px;
-          background: #eaf3e0;
-          border-bottom: 1px solid #b7d59b;
-        `}
-      >
-        <Button
-          variant="outlined"
-          onClick={() => store.closeRecorder()}
-          sx={{
-            textTransform: "none",
-            fontFamily: "inherit",
-            fontSize: 13,
-            fontWeight: 600,
-            gap: "6px",
-            py: "3px",
-            px: "10px",
-            color: "#33691e",
-            background: "#fff",
-            borderColor: "#b7d59b",
-            "&:hover": { borderColor: "#8dbf63", background: "#fff" },
-          }}
-        >
-          ← {t("annotations.backToTranscriptions", "Back to transcriptions")}
-        </Button>
-        <span
-          css={css`
-            margin-left: 200px;
-            font-size: 14px;
-            font-weight: bold;
-            color: #33691e;
-          `}
-        >
-          {title}
-        </span>
-      </div>
+      {/* No header strip: the host tab (or harness chip) already names the
+          recorder, and there is no grid to exit back to — the tab strip is
+          the navigation. */}
 
       {/* Strict 2x2 table: [source label+Listen] [source waveform] over
           [annotation label+Speak+meter] [annotation cells], full-height

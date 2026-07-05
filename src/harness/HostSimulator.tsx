@@ -10,15 +10,16 @@ import { HarnessStore } from "./HarnessStore";
 import { FileTree } from "./FileTree";
 import { AnnotationsTabView } from "./AnnotationsTabView";
 import { OralAnnotationsTabView } from "./OralAnnotationsTabView";
+import { TabControl } from "./TabControl";
 import { LAMETA_UI_FONT } from "../lametaTheme";
 
 /**
  * Standalone **host simulator**: the root page at http://localhost:5175/. It
  * fakes SayMore/lameta so the real plugin flows can be exercised without the
  * host — a session file tree on top, and below it whichever pane the selected
- * file drives (Start Annotating for the audio, the Annotations grid for the
- * `.eaf`, the real segmenter behind "Segment…"). Only mounted when NOT embedded;
- * the embedded plugin path is untouched.
+ * file drives (Start Annotating for the audio; the tab chips + grid/segmenter
+ * for the `.eaf`; the recorder/viewer chips for the OralAnnotations node).
+ * Only mounted when NOT embedded; the embedded plugin path is untouched.
  */
 export const HostSimulator = observer(function HostSimulator(props: { store: ProjectStore }) {
   const { store } = props;
@@ -102,17 +103,23 @@ const Pane = observer(function Pane(props: { harness: HarnessStore; store: Proje
     }
     const mediaName = store.startAnnotatingMedia ?? harness.mediaFileName ?? "";
     if (!mediaName || store.loading) return <p css={hintCss}>{t("harness.loading", "Loading…")}</p>;
+    // Same single tab the plugin's provider claims for un-annotated audio.
     return (
-      <StartAnnotatingView
-        mediaFileName={mediaName}
-        onStart={() => harness.runManual()}
-        onAutoSegment={(onProgress) => harness.runAuto(onProgress)}
-      />
+      <TabControl
+        tabs={[{ id: "start", label: t("tab.start", "Start Annotating") }]}
+        activeId="start"
+        onSelect={() => {}}
+      >
+        <StartAnnotatingView
+          onStart={() => harness.runManual()}
+          onAutoSegment={(onProgress) => harness.runAuto(onProgress)}
+        />
+      </TabControl>
     );
   }
 
   if (harness.selection === "oral") {
-    return <OralAnnotationsTabView store={store} />;
+    return <OralAnnotationsTabView harness={harness} />;
   }
 
   // selection === "eaf"

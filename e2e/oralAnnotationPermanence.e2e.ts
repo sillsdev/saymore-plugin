@@ -42,10 +42,9 @@ test.describe("Boundary drag vs. oral-annotation permanence (csFloat rename pari
     const leftWav = await seedOralWav(page, 0.75, 1.25);
     const rightWav = await seedOralWav(page, 1.25, 2);
 
-    await page.getByRole("button", { name: /Use manual segmentation tool/i }).click();
-    await expect(page.getByText(/Transcription/)).toBeVisible();
-    await page.getByRole("button", { name: /Segment…/ }).click();
-    await expect(page.getByRole("button", { name: /Back to transcriptions/i })).toBeVisible();
+    await page.getByRole("button", { name: /Manually segment/i }).click();
+    // An empty eaf's default tab is Segments — we land directly in the segmenter.
+    await expect(page.getByText(/Segments: 0/)).toBeVisible();
 
     // Exact boundary placement via the dev debug hook (`window.__seg`,
     // exposed by ManualSegmenterView in DEV builds "so the segmenter can be
@@ -70,7 +69,7 @@ test.describe("Boundary drag vs. oral-annotation permanence (csFloat rename pari
     // The harness reactively syncs its URL to annotationsView, so the
     // reload restores straight back into the segmenter.
     await page.reload();
-    await expect(page.getByRole("button", { name: /Back to transcriptions/i })).toBeVisible();
+    await expect(page.getByText(/Segments: 3/)).toBeVisible();
 
     const boundaryAt125 = page.locator('[data-testid="boundary-1"]'); // ends segment [0.75, 1.25]
     await expect(boundaryAt125).toHaveAttribute("data-boundary-sec", "1.25");

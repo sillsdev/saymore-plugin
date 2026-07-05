@@ -80,6 +80,48 @@ export interface PluginCompanionsApiV1 {
   stat(relPath: string): Promise<{ size: number; mtimeMs: number } | null>;
 }
 
+/** Parsed ffprobe metadata (a normalized subset of ffprobe's format+streams). */
+export interface FfprobeResult {
+  format: { durationSec?: number; formatName?: string; formatLongName?: string };
+  streams: Array<{
+    codecType?: "audio" | "video" | string;
+    codecName?: string;
+    channels?: number;
+    sampleRate?: number;
+    width?: number;
+    height?: number;
+    durationSec?: number;
+  }>;
+}
+
+/**
+ * Generic ffmpeg access, gated by the `ffmpeg` manifest permission. lameta bundles
+ * ffmpeg/ffprobe (ffmpeg-ffprobe-static); the plugin supplies the conversion args so
+ * this stays generic (SayMore's `_StandardAudio.wav` conversion is just the first consumer).
+ */
+export interface PluginFfmpegApiV1 {
+  /**
+   * ffprobe a file → normalized metadata. `relPath` defaults to the SELECTED file;
+   * otherwise it must be a companion path (validated exactly like `companions.*`).
+   */
+  probe(relPath?: string): Promise<FfprobeResult>;
+  /**
+   * Run one ffmpeg conversion. Input is the selected file (default) or companion
+   * `inputRelPath`; output is written to companion `outputRelPath` (same allowlist +
+   * atomic write as `companions.writeBytes`). `args` are the ffmpeg OUTPUT options placed
+   * before the output file; `inputArgs` (rare) go before `-i`. `onProgress` fires 0→1 as
+   * ffmpeg reports progress (kept client-side; not sent over the wire). Rejects on a
+   * non-zero ffmpeg exit.
+   */
+  run(spec: {
+    inputRelPath?: string;
+    outputRelPath: string;
+    args: string[];
+    inputArgs?: string[];
+    onProgress?: (fraction: number) => void;
+  }): Promise<void>;
+}
+
 /** The RPC surface a plugin can call on the host. */
 export interface PluginHostApiV1 {
   getFileBytes(): Promise<ArrayBuffer>;
@@ -88,6 +130,8 @@ export interface PluginHostApiV1 {
   writeSidecar(contents: string, name?: string): Promise<void>;
   listSidecars(): Promise<string[]>;
   companions: PluginCompanionsApiV1;
+  /** Generic ffmpeg access (probe/run); requires the `ffmpeg` manifest permission. */
+  ffmpeg: PluginFfmpegApiV1;
   /**
    * Ask the host to select another file in the current folder (rescanning the
    * folder first so a just-created file is found). `relPath` is relative to
@@ -126,6 +170,17 @@ export interface PluginResponseMessage {
   id: number;
   result?: unknown;
   error?: string;
+}
+
+/**
+ * Advisory host→plugin progress for a long-running request (currently `ffmpeg.run`),
+ * keyed by the in-flight request id. Fire-and-forget: the final `lameta:response` still
+ * resolves the call, and progress messages may be dropped.
+ */
+export interface PluginProgressMessage {
+  type: "lameta:progress";
+  id: number;
+  fraction: number;
 }
 
 /** A tab the plugin's provider claims for a selected file (returned from `lameta:getTabs`). */
@@ -172,4 +227,8 @@ export interface PluginTabsMessage {
 }
 
 export type PluginToHostMessage = PluginReadyMessage | PluginRequestMessage | PluginTabsMessage;
-export type HostToPluginMessage = PluginInitMessage | PluginResponseMessage | PluginGetTabsMessage;
+export type HostToPluginMessage =
+  | PluginInitMessage
+  | PluginResponseMessage
+  | PluginProgressMessage
+  | PluginGetTabsMessage;

@@ -2,23 +2,30 @@
   // See D:/lameta/plugins/docs/plugin-authoring.md.
   id: "org.sil.saymore-audio",
   name: "SayMore Audio Annotation",
+  infoUrl: "http://github.com/sillsdev/saymore-plugin",
   version: "0.0.0", // display only; semver
   apiVersion: 1, // plugin API major version
-  description: "SayMore-compatible audio annotation. Manual Segmenter now; Auto Segmenter and the Transcription grid to follow.",
+  description: "SayMore-compatible audio annotation. ",
   author: "SIL Global",
 
-  permissions: ["companionFiles"],
+  permissions: ["companionFiles", "ffmpeg"],
 
   // Tab-provider model (host ASKS the plugin): on every selection the host loads this entry
   // as a hidden provider and calls getTabs; the SPA (src/plugin/tabProvider.ts) answers LIVE
   // and UNCACHED from the current companion state:
-  //   - Audio with no <media>.annotations.eaf → one "SayMore: Start Annotating" tab (button)
+  //   - Audio/Video with no <media>.annotations.eaf → one "Start Annotating" tab. For a WAV
+  //     this shows the auto/manual setup buttons directly; for any other type it first offers
+  //     to convert to <basename>_StandardAudio.wav (via api.ffmpeg) and annotate that.
   //   - Audio that already has an .eaf         → NO tab (edit via the .eaf's own tab)
-  //   - a selected .eaf                        → one "Segments" tab (the manual segmenter)
+  //   - a selected .eaf                        → "Transcription & Translation" (grid) +
+  //                                              "Segments" (manual segmenter); the grid is
+  //                                              default once segments exist, Segments while empty
+  //   - a <media>.oralAnnotations.wav          → "Careful Speech" (default) + "Oral Translation"
+  //                                              (recorders) + "Combined Audio" (3-channel viewer)
   // When a returned tab is opened, the same entry loads as a content tab and self-renders.
   // `handles` is a coarse capability hint so the host only queries us for relevant files.
   tabProvider: {
     entry: "index.html",
-    handles: { lametaTypes: ["Audio"], extensions: ["eaf"] },
+    handles: { lametaTypes: ["Audio", "Video"], extensions: ["eaf"] },
   },
 }

@@ -10,7 +10,7 @@ import { AnnotationDocumentStore } from "./AnnotationDocumentStore";
 import { SegmenterViewModel } from "./SegmenterViewModel";
 import { RecorderViewModel } from "./recorder/RecorderViewModel";
 import { RecordingFileStore } from "./recorder/RecordingFileStore";
-import { regenerateCombinedOralWav } from "./recorder/combinedWav";
+import { combinedOralWavName, regenerateCombinedOralWav } from "./recorder/combinedWav";
 import { OralAnnotationsViewerModel } from "./recorder/OralAnnotationsViewerModel";
 import type { RecorderKind } from "./recorder/recorderTypes";
 import { SpyRecorder, type RecorderService } from "../audio/recording/Recorder";
@@ -66,10 +66,16 @@ export class ProjectStore {
 
   /** Which view the Annotations pane currently shows. */
   annotationsView: AnnotationsView = "segmenter";
-  /** The active recorder, when {@link annotationsView} is a recorder mode. */
+  /** The active recorder (the Careful Speech / Oral Translation tabs). */
   recorder: RecorderViewModel | undefined = undefined;
-  /** Combined-WAV regeneration progress (0..1) while it runs on recorder exit; else undefined. */
+  /** Combined-WAV generation progress (0..1) while Setup Oral Annotation runs; else undefined. */
   combinedWavProgress: number | undefined = undefined;
+  /**
+   * Whether `<media>.oralAnnotations.wav` exists (checked at session load,
+   * flipped by {@link setupOralAnnotations}). Drives the grid's "Setup Oral
+   * Annotation" button — shown only while this is exactly `false`.
+   */
+  combinedWavExists: boolean | undefined = undefined;
   /** The Oral Annotations viewer, when the combined `.oralAnnotations.wav` is open. */
   oralViewer: OralAnnotationsViewerModel | undefined = undefined;
 
@@ -165,6 +171,7 @@ export class ProjectStore {
     if (!adapter || !envelope) throw new Error("ProjectStore: media not loaded.");
 
     const oralIndex = await OralAnnotationIndex.build(adapter, this.mediaFileName);
+    const combinedWavExists = await adapter.exists(combinedOralWavName(this.mediaFileName));
 
     const document = new AnnotationDocumentStore();
     document.init(this.mediaFileName, envelope.durationSec, eafText);
@@ -181,6 +188,7 @@ export class ProjectStore {
       this.document = document;
       this.segmenter = segmenter;
       this.oralIndex = oralIndex;
+      this.combinedWavExists = combinedWavExists;
       this.startAnnotatingMedia = undefined;
       // Grid-first: opening a session lands on the transcription grid (John's
       // decision). The segmenter/recorders are reached from the grid's toolbar.
@@ -211,6 +219,10 @@ export class ProjectStore {
    */
   openRecorder(kind: RecorderKind): void {
     if (!this.document || !this.oralIndex) return;
+    // Recorder and Oral Annotations viewer are mutually exclusive panes over the
+    // same combined-file state; the viewer regenerates a stale combined file on
+    // its next open, so no regen is owed here.
+    this.disposeOralViewer();
     this.disposeRecorder();
     void this.buildRecorder(kind);
   }
@@ -238,35 +250,40 @@ export class ProjectStore {
   }
 
   /**
-   * Leave the recorder, back to the grid, and regenerate the combined
-   * `<media>.oralAnnotations.wav` (SayMore regenerates on OK). Regeneration is
-   * best-effort and non-blocking; the store overlay is captured before the VM is
-   * disposed so the just-recorded clips are included.
+   * "Setup Oral Annotation": create the combined `<media>.oralAnnotations.wav`
+   * so its Careful Speech / Oral Translation / Combined Audio tabs exist. With
+   * no recordings yet this writes a source-only file (silent annotation
+   * channels); any recordings already on disk are included. Later freshness is
+   * owned by the viewer's staleness check (there is no regenerate-on-recorder-
+   * exit — recorder tabs have no exit). Returns the file's relative name so the
+   * caller can select it (host `selectFile` / harness tree selection).
    */
-  closeRecorder(): void {
-    const store = this.recorder?.store;
-    this.disposeRecorder();
-    this.annotationsView = "grid";
-    if (store) void this.regenerateCombined(store);
-  }
-
-  private async regenerateCombined(store: RecordingFileStore): Promise<void> {
+  async setupOralAnnotations(): Promise<string> {
     const adapter = this.adapter;
     const document = this.document;
-    if (!adapter || !document || this.singleFileMode) return;
-    const tiers = document.tiers;
-    const segments = tiers.segments.map((s, i) => ({
-      range: s.range,
-      ignored: tiers.isSegmentIgnored(i),
-      careful: store.get(s.range, "Careful"),
-      translation: store.get(s.range, "Translation"),
-    }));
+    const oralIndex = this.oralIndex;
+    if (!adapter || !document || !oralIndex || this.singleFileMode) {
+      throw new Error("ProjectStore: no session loaded.");
+    }
+    runInAction(() => {
+      this.combinedWavProgress = 0;
+    });
     try {
+      const tiers = document.tiers;
+      const segments = await Promise.all(
+        tiers.segments.map(async (s, i) => ({
+          range: s.range,
+          ignored: tiers.isSegmentIgnored(i),
+          careful: await oralIndex.readSegmentWav(s.range, "Careful"),
+          translation: await oralIndex.readSegmentWav(s.range, "Translation"),
+        })),
+      );
       await regenerateCombinedOralWav({
         adapter,
         mediaFileName: this.mediaFileName,
         totalDurationSec: document.durationSec,
         segments,
+        allowEmpty: true,
         decodeMedia: (bytes) => this.decodeMediaToSource(bytes),
         onProgress: (fraction) => {
           runInAction(() => {
@@ -274,8 +291,10 @@ export class ProjectStore {
           });
         },
       });
-    } catch {
-      // Best-effort (mirrors the segmenter's autosave); leaving the recorder must not fail.
+      runInAction(() => {
+        this.combinedWavExists = true;
+      });
+      return combinedOralWavName(this.mediaFileName);
     } finally {
       runInAction(() => {
         this.combinedWavProgress = undefined;
@@ -340,7 +359,7 @@ export class ProjectStore {
   }
 
   /**
-   * Start Annotating → "Use manual segmentation tool" (standalone). Seed an empty
+   * SayMore tab → "Manually segment" (standalone). Seed an empty
    * SayMore-compatible `.eaf` beside the media (unless one exists), then open the
    * segmenter on it.
    */
@@ -394,6 +413,7 @@ export class ProjectStore {
     this.document = undefined;
     this.segmenter = undefined;
     this.oralIndex = undefined;
+    this.combinedWavExists = undefined;
     this.annotationsView = "segmenter";
     this.startAnnotatingMedia = undefined;
     this.autoSegmentProgress = 0;

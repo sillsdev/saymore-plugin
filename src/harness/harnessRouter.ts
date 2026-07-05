@@ -5,19 +5,15 @@ import type { AnnotationsView } from "../state/ProjectStore";
  * shared link) lands back in the same place: which session source, which file is
  * selected, and which view is showing. Deliberately tiny — no router library.
  *
- *   ?src=sample|folder & sel=audio|eaf|oral & view=grid|segmenter|recorder-careful|recorder-translation
+ *   ?src=sample|folder & sel=audio|eaf|oral & view=grid|segmenter
  */
 export type SessionSource = "sample" | "folder";
 export type Selection = "audio" | "eaf" | "oral";
 /** Same shape as `ProjectStore.annotationsView` — the harness round-trips it through the URL. */
 export type EafView = AnnotationsView;
 
-const EAF_VIEWS: readonly EafView[] = [
-  "grid",
-  "segmenter",
-  "recorder-careful",
-  "recorder-translation",
-];
+/** The eaf selection's restorable views (the recorders live on the oral selection's tabs). */
+const EAF_VIEWS: readonly EafView[] = ["grid", "segmenter"];
 
 export interface HarnessUrlState {
   src: SessionSource;

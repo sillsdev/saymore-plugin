@@ -11,8 +11,7 @@ import {
   readIdbFileBytes,
   readIdbFileModifiedMs,
   RECORD_HOLD_MS,
-  SAMPLE_EAF_NAME,
-  waitForFiles,
+  tabChip,
 } from "./helpers";
 
 /**
@@ -43,11 +42,12 @@ import {
  */
 
 /**
- * Record segment 0 (Careful), leave the recorder (closeRecorder regenerates
- * the combined file), reload so the harness re-scans the file list and the
- * OralAnnotations tree row appears (it only renders once the file exists —
- * src/harness/sessionTree.ts), then select it. Ends with the viewer open and
- * its three rows rendered.
+ * Record segment 0 (Careful) — openRecorder's "Setup Oral Annotation" creates
+ * the combined `<media>.oralAnnotations.wav` and selects it (the tree gains the
+ * OralAnnotations row, the Careful Speech tab opens) — then switch to the
+ * "Combined Audio" chip: the viewer's staleness check regenerates the file so
+ * it includes the fresh recording. Ends with the viewer open and its three
+ * rows rendered.
  */
 async function openViewerAfterOneRecording(page: Page): Promise<void> {
   await openSample(page, { sel: "audio" });
@@ -55,16 +55,14 @@ async function openViewerAfterOneRecording(page: Page): Promise<void> {
 
   await createTwoRealSegments(page);
   await openRecorder(page, "Careful Speech");
+  await expect(fileTreeRow(page, COMBINED_WAV_NAME)).toBeVisible();
   await listenThenRecord(page);
   await expect(page.locator('[data-testid="cell-play-0"]')).toBeVisible();
 
-  await page.getByRole("button", { name: /Back to transcriptions/i }).click();
-  await waitForFiles(page, (files) => files.includes(COMBINED_WAV_NAME), 10_000);
-
-  await page.reload();
-  await expect(fileTreeRow(page, COMBINED_WAV_NAME)).toBeVisible();
-  await fileTreeRow(page, COMBINED_WAV_NAME).click();
-  await expect(page.locator('[data-testid="oralann-row-careful"]')).toBeVisible();
+  await tabChip(page, "combined-audio").click();
+  await expect(page.locator('[data-testid="oralann-row-careful"]')).toBeVisible({
+    timeout: 15_000,
+  });
 }
 
 /** Parse the "pos / total" readout ("05.0 / 09.9") into seconds. */
@@ -74,12 +72,15 @@ function parseReadout(text: string): { pos: number; total: number } {
 }
 
 test.describe("Oral Annotations viewer", () => {
-  test("selecting the tree node opens the viewer: chip + 3 rows render, file exists on disk", async ({
+  test("selecting the tree node opens the viewer: chips + 3 rows render, file exists on disk", async ({
     page,
   }) => {
     await openViewerAfterOneRecording(page);
 
-    await expect(page.getByText("Oral Annotations", { exact: true })).toBeVisible();
+    // All three of the selection's tab chips render; Combined Audio is active.
+    await expect(tabChip(page, "careful-speech")).toBeVisible();
+    await expect(tabChip(page, "oral-translation")).toBeVisible();
+    await expect(tabChip(page, "combined-audio")).toBeVisible();
     await expect(page.locator('[data-testid="oralann-row-source"]')).toBeVisible();
     await expect(page.locator('[data-testid="oralann-row-careful"]')).toBeVisible();
     await expect(page.locator('[data-testid="oralann-row-translation"]')).toBeVisible();
@@ -158,19 +159,21 @@ test.describe("Oral Annotations viewer", () => {
     await openViewerAfterOneRecording(page);
     const v1Bytes = await readIdbFileBytes(page, COMBINED_WAV_NAME);
 
-    // Back to the grid, record Careful for segment 1 too (the recorder
-    // auto-advances past the already-annotated segment 0).
-    await fileTreeRow(page, SAMPLE_EAF_NAME).click();
-    await expect(page.getByText(/Transcription/)).toBeVisible();
-    await openRecorder(page, "Careful Speech");
+    // Back to the Careful Speech recorder tab (the combined file exists now,
+    // so the entry point is the OralAnnotations row's own tabs) and record
+    // Careful for segment 1 too (the recorder auto-advances past the
+    // already-annotated segment 0).
+    await tabChip(page, "careful-speech").click();
+    await expect(page.getByRole("button", { name: "Speak" })).toBeVisible();
+    await page.waitForTimeout(500); // MicRecorder.open() settle
     await holdKey(page, " ", 2200); // segment 1 is ~1.5s
     await holdKey(page, " ", RECORD_HOLD_MS);
     await expect(page.locator('[data-testid="cell-play-1"]')).toBeVisible();
 
-    // Re-select the OralAnnotations row DIRECTLY from the still-open recorder
-    // (not via "Back to transcriptions", which would itself regenerate the
-    // combined file) — isolates the viewer's OWN staleness-triggered regen.
-    await fileTreeRow(page, COMBINED_WAV_NAME).click();
+    // Back to the Combined Audio chip: only the viewer's OWN
+    // staleness-triggered regen can pick up the new recording (there is no
+    // regenerate-on-recorder-exit anymore).
+    await tabChip(page, "combined-audio").click();
     await expect(page.locator('[data-testid="oralann-row-careful"]')).toBeVisible({
       timeout: 10_000,
     });

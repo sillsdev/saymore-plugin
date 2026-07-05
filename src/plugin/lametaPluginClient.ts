@@ -15,9 +15,11 @@
 // readSidecar()/companions on connect so hot-reload is loss-free.
 
 import type {
+  FfprobeResult,
   PluginGetTabsMessage,
   PluginHostApiV1,
   PluginInitContext,
+  PluginProgressMessage,
   PluginResponseMessage,
   TabDescriptor,
   TabProviderQuery,
@@ -37,6 +39,10 @@ export function connectToLameta(timeoutMs = 10000): Promise<LametaConnection> {
   return new Promise<LametaConnection>((resolve, reject) => {
     let nextId = 1;
     const pending = new Map<number, PendingEntry>();
+    // Per-request progress callbacks (e.g. ffmpeg.run), invoked on `lameta:progress`
+    // and dropped when the request's `lameta:response` arrives. Kept client-side only —
+    // the callback itself never crosses postMessage.
+    const progress = new Map<number, (fraction: number) => void>();
 
     // Re-announce readiness on an interval until the host answers. A one-shot
     // `lameta:ready` races the host wiring up its listener — a fast file:// iframe
@@ -76,11 +82,19 @@ export function connectToLameta(timeoutMs = 10000): Promise<LametaConnection> {
         return;
       }
 
+      if (data.type === "lameta:progress") {
+        const msg = data as PluginProgressMessage;
+        const cb = progress.get(msg.id);
+        if (cb && typeof msg.fraction === "number") cb(msg.fraction);
+        return;
+      }
+
       if (data.type === "lameta:response") {
         const msg = data as PluginResponseMessage;
         const entry = pending.get(msg.id);
         if (!entry) return;
         pending.delete(msg.id);
+        progress.delete(msg.id);
         if (msg.error !== undefined && msg.error !== null) {
           entry.reject(new Error(msg.error));
         } else {
@@ -96,10 +110,12 @@ export function connectToLameta(timeoutMs = 10000): Promise<LametaConnection> {
       method: string,
       params: unknown[],
       transfer?: Transferable[],
+      onProgress?: (fraction: number) => void,
     ): Promise<unknown> {
       const id = nextId++;
       return new Promise<unknown>((res, rej) => {
         pending.set(id, { resolve: res, reject: rej });
+        if (onProgress) progress.set(id, onProgress);
         const message = { type: "lameta:request", id, method, params };
         if (transfer && transfer.length) window.parent.postMessage(message, "*", transfer);
         else window.parent.postMessage(message, "*");
@@ -136,6 +152,14 @@ export function connectToLameta(timeoutMs = 10000): Promise<LametaConnection> {
             size: number;
             mtimeMs: number;
           } | null>,
+      },
+      // Always present; every call errors unless the manifest declares the "ffmpeg"
+      // permission. `onProgress` is stripped from the wire params and driven by
+      // `lameta:progress` messages instead.
+      ffmpeg: {
+        probe: (relPath) => request("ffmpeg.probe", [relPath]) as Promise<FfprobeResult>,
+        run: ({ onProgress, ...spec }) =>
+          request("ffmpeg.run", [spec], undefined, onProgress) as Promise<void>,
       },
     };
 

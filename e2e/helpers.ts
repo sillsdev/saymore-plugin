@@ -40,6 +40,25 @@ export function fileTreeRow(page: Page, name: string) {
   return page.getByRole("button", { name: new RegExp(`^${escapeRegExp(name)} `) });
 }
 
+/**
+ * A harness tab chip (see src/harness/TabChip.tsx) by the TabDescriptor id the
+ * plugin claims for the selection: "transcription-translation" / "segments" on
+ * a `.eaf`; "careful-speech" / "oral-translation" / "combined-audio" on the
+ * OralAnnotations node.
+ */
+export function tabChip(page: Page, id: string) {
+  return page.getByTestId(`tab-chip-${id}`);
+}
+
+/**
+ * Assert the transcription grid is showing. "Free Translation" is the grid's
+ * second column header and appears nowhere else — unlike /Transcription/,
+ * which the "Transcription & Translation" tab chip also matches.
+ */
+export async function expectGridVisible(page: Page): Promise<void> {
+  await expect(page.getByText("Free Translation")).toBeVisible();
+}
+
 /** Click "Reset sample": drops any created eaf / edits, reseeds the pristine sample. */
 export async function resetSample(page: Page): Promise<void> {
   await page.getByRole("button", { name: /Reset sample/i }).click();
@@ -198,44 +217,52 @@ export const RECORD_HOLD_MS = 1000;
 export const LISTEN_SEGMENT0_HOLD_MS = 1800; // segment 0 is ~1s
 
 /**
- * Two real segments ([0, ~1s], [~1s, ~2.5s]) via the real-time listen+Enter
- * technique (playback always restarts from cursor 0, so the second hold must
- * run long enough to pass the first boundary) — deterministic without any
- * pixel math, and short enough that a push-to-talk listen-hold can reach each
- * segment's end in a couple of seconds. Assumes the audio row is already
- * selected with no eaf yet (see `openSample(page, { sel: "audio" })`).
+ * Two real segments ([0, 1s], [1s, 2.5s]). "Manually segment" lands directly
+ * in the segmenter (the empty eaf's Segments tab claims default); boundaries
+ * are placed via the segmenter's DEV debug hook (`window.__seg`, exposed by
+ * ManualSegmenterView) — the earlier real-time listen+Enter technique missed
+ * boundaries under parallel-worker CPU load. Ends back on the grid. Assumes
+ * the audio row is already selected with no eaf yet (see
+ * `openSample(page, { sel: "audio" })`).
  */
 export async function createTwoRealSegments(page: Page): Promise<void> {
-  await page.getByRole("button", { name: /Use manual segmentation tool/i }).click();
-  await expect(page.getByText(/Transcription/)).toBeVisible();
-  await page.getByRole("button", { name: /Segment…/ }).click();
-  await expect(page.getByRole("button", { name: /Back to transcriptions/i })).toBeVisible();
+  await page.getByRole("button", { name: /Manually segment/i }).click();
+  await expect(page.getByText(/Segments: 0/)).toBeVisible();
 
-  await page.keyboard.press(" ");
-  await page.waitForTimeout(1000);
-  await page.keyboard.press("Enter");
-  await page.keyboard.press(" ");
-
-  await page.keyboard.press(" ");
-  await page.waitForTimeout(2500);
-  await page.keyboard.press("Enter");
-  await page.keyboard.press(" ");
+  await page.evaluate(() => {
+    const vm = (
+      window as unknown as {
+        __seg: { setCursor(sec: number): void; addBoundaryAtCursor(): unknown };
+      }
+    ).__seg;
+    vm.setCursor(1);
+    vm.addBoundaryAtCursor();
+    vm.setCursor(2.5);
+    vm.addBoundaryAtCursor();
+  });
 
   await expect(page.getByText(/Segments: 2/)).toBeVisible();
   await page.waitForTimeout(700); // let the debounced eaf auto-save flush
 
-  await page.getByRole("button", { name: /Back to transcriptions/i }).click();
-  await expect(page.getByText(/Transcription/)).toBeVisible();
+  await tabChip(page, "transcription-translation").click();
+  await expectGridVisible(page);
 }
 
-/** Open the Careful Speech / Oral Translation recorder from the grid toolbar. */
+/**
+ * Open the Careful Speech / Oral Translation recorder from the grid: "Setup
+ * Oral Annotation" creates the combined `<media>.oralAnnotations.wav` and
+ * selects it, opening its default Careful Speech tab; Oral Translation is the
+ * sibling chip. Assumes the grid is showing and no combined file exists yet.
+ */
 export async function openRecorder(
   page: Page,
   kind: "Careful Speech" | "Oral Translation",
 ): Promise<void> {
-  await page.getByRole("button", { name: /Oral Annotations Tools/ }).click();
-  await page.getByRole("menuitem", { name: new RegExp(kind) }).click();
-  await expect(page.getByRole("button", { name: /Back to transcriptions/i })).toBeVisible();
+  await page.getByRole("button", { name: /Setup Oral Annotation/ }).click();
+  // Setup decodes the media and writes the combined file before selecting it.
+  await expect(tabChip(page, "careful-speech")).toBeVisible({ timeout: 15_000 });
+  if (kind === "Oral Translation") await tabChip(page, "oral-translation").click();
+  await expect(page.getByRole("button", { name: "Speak" })).toBeVisible();
   // MicRecorder.open() (getUserMedia + AudioContext + AudioWorklet.addModule)
   // is async; give it a moment before the first push-to-talk hold.
   await page.waitForTimeout(500);

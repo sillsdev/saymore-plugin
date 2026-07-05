@@ -10,8 +10,9 @@ import {
   openRecorder,
   openSample,
   readIdbFileBytes,
+  readIdbFileModifiedMs,
   RECORD_HOLD_MS,
-  waitForFiles,
+  tabChip,
 } from "./helpers";
 
 /**
@@ -136,17 +137,28 @@ test.describe("Oral Annotations recorder (Careful Speech / Oral Translation)", (
     ).toBe(true);
   });
 
-  test("leaving the recorder regenerates <media>.oralAnnotations.wav", async ({ page }) => {
+  test("opening Combined Audio after recording regenerates <media>.oralAnnotations.wav", async ({
+    page,
+  }) => {
     await openSample(page, { sel: "audio" });
     await createTwoRealSegments(page);
+    // Setup Oral Annotation (inside openRecorder) wrote the initial source-only file.
     await openRecorder(page, "Careful Speech");
+    const initialMs = await readIdbFileModifiedMs(page, COMBINED_WAV_NAME);
+    expect(initialMs).toBeDefined();
 
     await listenThenRecord(page);
     await expect(page.locator('[data-testid="cell-play-0"]')).toBeVisible();
 
-    await page.getByRole("button", { name: /Back to transcriptions/i }).click();
-    await expect(page.getByRole("button", { name: /Segment…/ })).toBeVisible();
-
-    await waitForFiles(page, (files) => files.includes(COMBINED_WAV_NAME), 10_000);
+    // The viewer's staleness check owns regeneration now (no recorder exit):
+    // the per-segment WAV is newer than the combined file, so opening the
+    // Combined Audio tab rewrites it.
+    await tabChip(page, "combined-audio").click();
+    await expect(page.locator('[data-testid="oralann-row-careful"]')).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect
+      .poll(() => readIdbFileModifiedMs(page, COMBINED_WAV_NAME), { timeout: 10_000 })
+      .not.toBe(initialMs);
   });
 });

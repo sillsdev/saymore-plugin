@@ -28,6 +28,13 @@ export interface RegenerateCombinedOralWavOptions {
   decodeMedia: MediaDecoder;
   /** Defaults to the worker-backed client (sync fallback in node/tests). */
   generate?: OralWavGenerator;
+  /**
+   * Write the file even when no segment has a recording yet (source-only blocks,
+   * silent Careful/Translation channels) — the "Setup Oral Annotation" path,
+   * which must create the combined file so its recorder tabs exist. Default
+   * false: SayMore `CanGenerate` parity for regeneration.
+   */
+  allowEmpty?: boolean;
   onProgress?: (fraction: number) => void;
 }
 
@@ -46,7 +53,7 @@ export async function regenerateCombinedOralWav(
   opts: RegenerateCombinedOralWavOptions,
 ): Promise<CombinedWavOutcome> {
   const hasAnnotation = opts.segments.some((s) => s.careful || s.translation);
-  if (!hasAnnotation) return "skipped-no-annotations";
+  if (!hasAnnotation && !opts.allowEmpty) return "skipped-no-annotations";
 
   const mediaBytes = await opts.adapter.readBytes(opts.mediaFileName);
   const source = await opts.decodeMedia(mediaBytes);

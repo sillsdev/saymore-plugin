@@ -7,7 +7,7 @@ test.describe("Transcription grid", () => {
   }) => {
     await openSample(page, { sel: "audio" });
     await page.getByRole("button", { name: /Auto-segment/i }).click();
-    await expect(page.getByText(/Transcription/)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Free Translation")).toBeVisible({ timeout: 15_000 });
 
     const transcriptionCell = page.locator('input[placeholder*="transcription"]').first();
     const freeTranslationCell = page.locator('input[placeholder*="free translation"]').first();
@@ -22,7 +22,7 @@ test.describe("Transcription grid", () => {
     await page.waitForTimeout(300);
     await page.reload();
 
-    await expect(page.getByText(/Transcription/)).toBeVisible();
+    await expect(page.getByText("Free Translation")).toBeVisible();
     await expect(page.locator('input[placeholder*="transcription"]').first()).toHaveValue(
       "hello world",
     );
@@ -37,7 +37,7 @@ test.describe("Transcription grid", () => {
 
     await openSample(page, { sel: "audio" });
     await page.getByRole("button", { name: /Auto-segment/i }).click();
-    await expect(page.getByText(/Transcription/)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Free Translation")).toBeVisible({ timeout: 15_000 });
 
     const playButtons = page.getByTitle("Play this segment");
     const count = await playButtons.count();

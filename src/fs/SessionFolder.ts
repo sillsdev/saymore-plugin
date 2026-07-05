@@ -44,6 +44,15 @@ export function annotationsEafName(mediaFileName: string): string {
 }
 
 /**
+ * SayMore's standard-audio companion for a non-WAV source: the basename with its
+ * extension replaced by `_StandardAudio.wav` (e.g. `clip.mp4` → `clip_StandardAudio.wav`).
+ * This is the PCM WAV the plugin annotates when the selected file isn't already WAV.
+ */
+export function standardAudioName(mediaFileName: string): string {
+  return mediaFileName.replace(/\.[^.]+$/, "") + STANDARD_AUDIO_SUFFIX;
+}
+
+/**
  * The media file a `<media>.annotations.eaf` annotates — the inverse of
  * {@link annotationsEafName}. Strips the `.annotations.eaf` suffix (case-insensitive);
  * returns the name unchanged if it doesn't carry that suffix. Used when lameta selects

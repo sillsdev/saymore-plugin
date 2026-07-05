@@ -59,7 +59,6 @@ function fakeStore(vm: RecorderViewModel | undefined): ProjectStore {
   return {
     recorder: vm,
     envelope: undefined,
-    closeRecorder: vi.fn(),
   } as unknown as ProjectStore;
 }
 
@@ -69,19 +68,10 @@ describe("RecorderView", () => {
   // own — do it explicitly, since several tests below render more than once.
   afterEach(() => cleanup());
 
-  it("titles the pane by kind", () => {
-    const { rerender } = render(<RecorderView store={fakeStore(fakeVm({ kind: "Careful" }))} />);
-    expect(screen.getByText("Careful Speech Recorder")).toBeTruthy();
-
-    rerender(<RecorderView store={fakeStore(fakeVm({ kind: "Translation" }))} />);
-    expect(screen.getByText("Oral Translation Recorder")).toBeTruthy();
-  });
-
-  it("Back to transcriptions closes the recorder", () => {
-    const store = fakeStore(fakeVm());
-    render(<RecorderView store={store} />);
-    fireEvent.click(screen.getByText(/Back to transcriptions/));
-    expect(store.closeRecorder).toHaveBeenCalledOnce();
+  it("has no heading or exit — the host tab names the recorder and is the navigation", () => {
+    render(<RecorderView store={fakeStore(fakeVm({ kind: "Careful" }))} />);
+    expect(screen.queryByText(/Recorder/)).toBeNull();
+    expect(screen.queryByText(/Back to transcriptions/)).toBeNull();
   });
 
   it("Speak is disabled until the current segment has been listened to", () => {

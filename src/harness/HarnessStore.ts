@@ -19,6 +19,9 @@ const FOLDER_HANDLE_KEY = "folderHandle";
 
 type Phase = "init" | "ready" | "needs-folder-reconnect" | "error";
 
+/** Which of the OralAnnotations selection's tabs is showing (see OralAnnotationsTabView). */
+export type OralTab = "careful" | "translation" | "combined";
+
 /**
  * Drives the host simulator: owns the session source (bundled IndexedDB sample
  * or a connected disk folder), the derived file tree, the current selection and
@@ -38,6 +41,8 @@ export class HarnessStore {
 
   files: string[] = [];
   selection: Selection | undefined;
+  /** Active tab chip while `selection === "oral"` (the plugin defaults to Careful Speech). */
+  oralTab: OralTab = "careful";
 
   /** Guards against React StrictMode's double-mount running init() twice. */
   private started = false;
@@ -126,19 +131,8 @@ export class HarnessStore {
 
   /** Drive `ProjectStore.annotationsView` to a URL-restored value. */
   private applyView(view: EafView): void {
-    switch (view) {
-      case "segmenter":
-        this.projectStore.showSegmenter();
-        return;
-      case "recorder-careful":
-        this.projectStore.openRecorder("Careful");
-        return;
-      case "recorder-translation":
-        this.projectStore.openRecorder("Translation");
-        return;
-      case "grid":
-        this.projectStore.showGrid();
-    }
+    if (view === "segmenter") this.projectStore.showSegmenter();
+    else this.projectStore.showGrid();
   }
 
   // ── session sources ──────────────────────────────────────────────────────
@@ -250,15 +244,28 @@ export class HarnessStore {
     });
     await this.projectStore.openSession(adapter);
     runInAction(() => {
-      // openSession resets the ProjectStore (annotationsView defaults to
-      // "segmenter"); the harness's own eaf selection always starts at the grid.
-      this.projectStore.showGrid();
+      // Mirror the plugin's default tab for an eaf (see tabProvider.ts): the
+      // grid once segments exist, the segmenter while the eaf is still empty.
+      this.applyDefaultEafView();
       this.busy = false;
     });
     this.syncUrl();
   }
 
-  /** Select the OralAnnotations tree node: load the session (if not already) then open the viewer. */
+  /** The provider's live default for an eaf: Segments while empty, else the grid. */
+  private applyDefaultEafView(): void {
+    if ((this.projectStore.document?.segments.length ?? 0) === 0) {
+      this.projectStore.showSegmenter();
+    } else {
+      this.projectStore.showGrid();
+    }
+  }
+
+  /**
+   * Select the OralAnnotations tree node: load the session (if not already),
+   * then open the selection's default tab — Careful Speech, the tab the
+   * plugin's provider marks `claimDefault` (see tabProvider.ts).
+   */
   async selectOral(): Promise<void> {
     const adapter = this.adapter;
     if (!adapter || !this.hasOral) return;
@@ -270,21 +277,39 @@ export class HarnessStore {
       await this.projectStore.openSession(adapter);
     }
     runInAction(() => {
-      this.projectStore.openOralAnnotationsViewer();
+      this.setOralTab("careful");
       this.busy = false;
     });
     this.syncUrl();
   }
 
-  /** After the Start Annotating buttons create the eaf: mirror lameta's rescan +
-   * selectFile — the tree gains the Annotations row and selection jumps to it. */
+  /** Switch the OralAnnotations selection's tab chip: a recorder (hot mic) or the viewer. */
+  setOralTab(tab: OralTab): void {
+    this.oralTab = tab;
+    if (tab === "combined") this.projectStore.openOralAnnotationsViewer();
+    else this.projectStore.openRecorder(tab === "careful" ? "Careful" : "Translation");
+  }
+
+  /** After the SayMore-tab buttons create the eaf: mirror lameta's rescan +
+   * selectFile — the tree gains the Annotations row, selection jumps to it, and
+   * the provider's live default tab opens (Segments for a fresh manual eaf,
+   * the grid for an auto-segmented one). */
   async onEafCreated(): Promise<void> {
     await this.refreshTree();
     runInAction(() => {
       this.selection = "eaf";
-      this.projectStore.showGrid();
+      this.applyDefaultEafView();
     });
     this.syncUrl();
+  }
+
+  /** Grid toolbar "Setup Oral Annotation": create the combined WAV, then mirror
+   * lameta's rescan + selectFile — the OralAnnotations row appears and its
+   * default (Careful Speech) tab opens. */
+  async setupOralAnnotations(): Promise<void> {
+    await this.projectStore.setupOralAnnotations();
+    await this.refreshTree();
+    await this.selectOral();
   }
 
   // ── Start Annotating actions (wrap ProjectStore + jump to the new eaf) ──────

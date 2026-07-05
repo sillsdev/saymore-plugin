@@ -41,6 +41,12 @@ export interface PluginConnection {
   lametaType: string;
   /** What kind of file was selected — App.tsx branches the pane on this. */
   selectionKind: SelectionKind;
+  /**
+   * Which provider-claimed tab this content iframe is rendering (`context.tab.id`,
+   * e.g. "segments" or "careful-speech"); undefined on hosts that predate the
+   * provider model. App.tsx routes the pane on `selectionKind` + this.
+   */
+  tabId: string | undefined;
   /** lameta's UI language code, for a future l10n hookup. */
   languageCode: string;
 }
@@ -88,6 +94,7 @@ export function buildPluginConnection(
     extension,
     lametaType: context.file.lametaType,
     selectionKind,
+    tabId: context.tab?.id,
     languageCode: context.ui.languageCode,
   };
 }

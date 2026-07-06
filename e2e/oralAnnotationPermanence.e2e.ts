@@ -43,7 +43,7 @@ test.describe("Boundary drag vs. oral-annotation permanence (csFloat rename pari
     const rightWav = await seedOralWav(page, 1.25, 2);
 
     await page.getByRole("button", { name: /Manually segment/i }).click();
-    // An empty eaf's default tab is Segments — we land directly in the segmenter.
+    // "Manually segment" opens the segmenter directly.
     await expect(page.getByText(/Segments: 0/)).toBeVisible();
 
     // Exact boundary placement via the dev debug hook (`window.__seg`,

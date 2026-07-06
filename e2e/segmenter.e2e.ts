@@ -1,11 +1,5 @@
 import { test, expect } from "@playwright/test";
-import {
-  expectGridVisible,
-  openSample,
-  readIdbFileText,
-  SAMPLE_EAF_NAME,
-  tabChip,
-} from "./helpers";
+import { expectGridVisible, openSample, readIdbFileText, SAMPLE_EAF_NAME } from "./helpers";
 
 /** Debounced auto-save in SegmenterViewModel (AUTO_SAVE_DELAY_MS) + margin. */
 const AUTOSAVE_SETTLE_MS = 700;
@@ -16,7 +10,7 @@ async function enterSegmenter(page: import("@playwright/test").Page): Promise<vo
   // positions for the edits below, with no risk of colliding with wherever the
   // real audio's silences happen to fall.
   await page.getByRole("button", { name: /Manually segment/i }).click();
-  // An empty eaf's default tab is Segments — we land directly in the segmenter.
+  // "Manually segment" opens the segmenter directly.
   await expect(page.getByText(/Segments: 0/)).toBeVisible();
 }
 
@@ -102,12 +96,12 @@ test.describe("Manual Segmenter", () => {
     expect(reverted).toBeCloseTo(before, 2);
   });
 
-  test("the Transcription & Translation tab returns to the grid", async ({ page }) => {
+  test("the segmenter's Back button returns to the grid", async ({ page }) => {
     await enterSegmenter(page);
     await addBoundaryByListening(page, 1.5);
     await expect(page.locator('[data-testid="boundary-0"]')).toBeVisible();
 
-    await tabChip(page, "transcription-translation").click();
+    await page.getByRole("button", { name: /Back/i }).click();
     await expectGridVisible(page);
     await expect(page.getByTitle("Play this segment")).toHaveCount(1);
   });

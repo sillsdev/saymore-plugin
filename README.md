@@ -20,7 +20,7 @@ A SayMore-compatible audio annotation — ELAN-compatible written and oral trans
 vp install    # install dependencies
 vp dev        # a hot-reloaded simulation in a browser tab
 vp build      # production build (Vite + Rolldown) → dist/
-vp build:watch # keep `dist/` up to date. Use with lameta's Developer mode for plugins where it watches a folder.
-vp test       # Vitest (node env by default; component specs opt into happy-dom)
-vp check      # format (Oxfmt) + lint & type-check (Oxlint) — run before committing
+vp build --watch # keep `dist/` up to date. Use with lameta's Developer mode for plugins where it watches a folder.
+vp test    
+vp check      # format, lint, type-check
 ```

@@ -17,19 +17,14 @@ function query(over: Partial<TabProviderQuery["file"]>): TabProviderQuery {
   };
 }
 
-const EAF_WITH_SEGMENT =
-  '<ANNOTATION_DOCUMENT><ALIGNABLE_ANNOTATION ANNOTATION_ID="a1"/></ANNOTATION_DOCUMENT>';
-const EAF_EMPTY = "<ANNOTATION_DOCUMENT></ANNOTATION_DOCUMENT>";
-
 describe("computeTabs (pure policy)", () => {
-  it("a segmented .eaf → Transcription & Translation (default) + Segments", () => {
+  it("a .eaf → a single Transcription & Translation tab (the segmenter is in-pane)", () => {
     expect(
       computeTabs({
         extension: "eaf",
         lametaType: "Unknown",
         hasAnnotationsEaf: false,
         isOralAnnotations: false,
-        eafHasSegments: true,
       }),
     ).toEqual([
       {
@@ -37,21 +32,6 @@ describe("computeTabs (pure policy)", () => {
         label: "Transcription & Translation",
         claimDefault: true,
       },
-      { id: "segments", label: "Segments", claimDefault: false },
-    ]);
-  });
-
-  it("an EMPTY .eaf → the Segments tab claims default (nothing to transcribe yet)", () => {
-    const tabs = computeTabs({
-      extension: "eaf",
-      lametaType: "Unknown",
-      hasAnnotationsEaf: false,
-      isOralAnnotations: false,
-      eafHasSegments: false,
-    });
-    expect(tabs.map((t) => [t.id, t.claimDefault])).toEqual([
-      ["transcription-translation", false],
-      ["segments", true],
     ]);
   });
 
@@ -62,7 +42,6 @@ describe("computeTabs (pure policy)", () => {
         lametaType: "Audio",
         hasAnnotationsEaf: false,
         isOralAnnotations: true,
-        eafHasSegments: true,
       }),
     ).toEqual([
       { id: "careful-speech", label: "Careful Speech", claimDefault: true },
@@ -78,7 +57,6 @@ describe("computeTabs (pure policy)", () => {
         lametaType: "Audio",
         hasAnnotationsEaf: false,
         isOralAnnotations: false,
-        eafHasSegments: true,
       }),
     ).toEqual([{ id: "start", label: "Start Annotating" }]);
   });
@@ -90,7 +68,6 @@ describe("computeTabs (pure policy)", () => {
         lametaType: "Video",
         hasAnnotationsEaf: false,
         isOralAnnotations: false,
-        eafHasSegments: true,
       }),
     ).toEqual([{ id: "start", label: "Start Annotating" }]);
   });
@@ -102,7 +79,6 @@ describe("computeTabs (pure policy)", () => {
         lametaType: "Audio",
         hasAnnotationsEaf: true,
         isOralAnnotations: false,
-        eafHasSegments: true,
       }),
     ).toEqual([]);
   });
@@ -114,7 +90,6 @@ describe("computeTabs (pure policy)", () => {
         lametaType: "Image",
         hasAnnotationsEaf: false,
         isOralAnnotations: false,
-        eafHasSegments: true,
       }),
     ).toEqual([]);
   });
@@ -123,24 +98,20 @@ describe("computeTabs (pure policy)", () => {
 describe("resolveSaymoreTabs (live companion checks)", () => {
   const noCompanions = {
     exists: vi.fn(async () => false),
-    readText: vi.fn(async () => ""),
   };
 
   it("audio: checks <media>.annotations.eaf and returns the button when absent", async () => {
     const exists = vi.fn(async () => false);
-    const readText = vi.fn(async () => "");
-    const tabs = await resolveSaymoreTabs(query({ name: "new.wav" }), { exists, readText });
+    const tabs = await resolveSaymoreTabs(query({ name: "new.wav" }), { exists });
     expect(exists).toHaveBeenCalledWith("new.wav.annotations.eaf");
-    expect(readText).not.toHaveBeenCalled();
     expect(tabs).toEqual([{ id: "start", label: "Start Annotating" }]);
   });
 
   it("video: checks <media>.annotations.eaf and returns the Start Annotating tab when absent", async () => {
     const exists = vi.fn(async () => false);
-    const readText = vi.fn(async () => "");
     const tabs = await resolveSaymoreTabs(
       query({ name: "clip.mp4", extension: "mp4", lametaType: "Video" }),
-      { exists, readText },
+      { exists },
     );
     expect(exists).toHaveBeenCalledWith("clip.mp4.annotations.eaf");
     expect(tabs).toEqual([{ id: "start", label: "Start Annotating" }]);
@@ -148,7 +119,6 @@ describe("resolveSaymoreTabs (live companion checks)", () => {
 
   it("audio: returns no tab when the .eaf already exists", async () => {
     const tabs = await resolveSaymoreTabs(query({ name: "new.wav" }), {
-      ...noCompanions,
       exists: async () => true,
     });
     expect(tabs).toEqual([]);
@@ -156,44 +126,22 @@ describe("resolveSaymoreTabs (live companion checks)", () => {
 
   it("a .oralAnnotations.wav → recorder + viewer tabs, without touching companions", async () => {
     const exists = vi.fn(async () => false);
-    const readText = vi.fn(async () => "");
     const tabs = await resolveSaymoreTabs(
       query({ name: "new.wav.oralAnnotations.wav", extension: "wav", lametaType: "Audio" }),
-      { exists, readText },
+      { exists },
     );
     expect(exists).not.toHaveBeenCalled();
-    expect(readText).not.toHaveBeenCalled();
     expect(tabs.map((t) => t.id)).toEqual(["careful-speech", "oral-translation", "combined-audio"]);
   });
 
-  it("a segmented .eaf → grid tab claims default (reads the eaf live)", async () => {
-    const readText = vi.fn(async () => EAF_WITH_SEGMENT);
+  it("a .eaf → a single grid tab, without touching companions", async () => {
+    const exists = vi.fn(async () => false);
     const tabs = await resolveSaymoreTabs(
       query({ name: "new.wav.annotations.eaf", extension: "eaf", lametaType: "Unknown" }),
-      { ...noCompanions, readText },
+      { exists },
     );
-    expect(readText).toHaveBeenCalledWith("new.wav.annotations.eaf");
-    expect(tabs.find((t) => t.claimDefault)?.id).toBe("transcription-translation");
-  });
-
-  it("an empty .eaf → Segments tab claims default", async () => {
-    const tabs = await resolveSaymoreTabs(
-      query({ name: "new.wav.annotations.eaf", extension: "eaf", lametaType: "Unknown" }),
-      { ...noCompanions, readText: async () => EAF_EMPTY },
-    );
-    expect(tabs.find((t) => t.claimDefault)?.id).toBe("segments");
-  });
-
-  it("an eaf readText failure falls back to the grid default", async () => {
-    const tabs = await resolveSaymoreTabs(
-      query({ name: "new.wav.annotations.eaf", extension: "eaf", lametaType: "Unknown" }),
-      {
-        ...noCompanions,
-        readText: async () => {
-          throw new Error("host down");
-        },
-      },
-    );
+    expect(exists).not.toHaveBeenCalled();
+    expect(tabs.map((t) => t.id)).toEqual(["transcription-translation"]);
     expect(tabs.find((t) => t.claimDefault)?.id).toBe("transcription-translation");
   });
 

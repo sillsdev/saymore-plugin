@@ -107,7 +107,7 @@ function cancelFrame(id: number): void {
   else clearTimeout(id as unknown as ReturnType<typeof setTimeout>);
 }
 
-function createAudioElement(url: string): HTMLAudioElement {
+export function createAudioElement(url: string): HTMLAudioElement {
   if (typeof Audio !== "undefined") {
     const el = new Audio(url);
     el.preload = "auto";

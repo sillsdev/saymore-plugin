@@ -22,6 +22,16 @@ import { RefreshIcon } from "./RefreshIcon";
 
 const ROW_HEIGHT = 56;
 const LABEL_WIDTH = 90;
+/**
+ * Chromium refuses to rasterize a `<canvas>` whose width exceeds ~32767px and
+ * paints a broken-image icon instead. A combined file at
+ * {@link PIXELS_PER_SECOND_AT_100} (80 px/s) crosses that at only ~6.8 minutes,
+ * so we cap the canvas *backing* width here and CSS-stretch it to the full
+ * logical width — the waveform loses a little horizontal resolution on very long
+ * files but keeps rendering (and the cursor/seek math, all in logical px, is
+ * unaffected). Kept safely under the hard limit.
+ */
+const MAX_CANVAS_PX = 32000;
 
 /**
  * The Oral Annotations viewer: SayMore's read-only look at the combined
@@ -306,20 +316,24 @@ function RowCanvas(props: {
   widthPx: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Backing store is capped (see MAX_CANVAS_PX); the element is then CSS-stretched
+  // to the full logical width so it still spans the row and lines up with the cursor.
+  const backingWidth = Math.min(props.widthPx, MAX_CANVAS_PX);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const points = downsampleChannels(props.channels, props.widthPx, ROW_HEIGHT);
+    const points = downsampleChannels(props.channels, backingWidth, ROW_HEIGHT);
     drawMiniWaveform(canvas, points, props.color);
-  }, [props.channels, props.widthPx, props.color]);
+  }, [props.channels, backingWidth, props.color]);
 
   return (
     <canvas
       ref={canvasRef}
       data-testid={props.testId}
-      width={props.widthPx}
+      width={backingWidth}
       height={ROW_HEIGHT}
+      style={{ width: props.widthPx }}
       css={css`
         display: block;
         border-bottom: 1px solid #eceff1;

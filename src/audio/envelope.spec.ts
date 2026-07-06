@@ -161,6 +161,61 @@ describe("computeEnvelope dispatch & helpers", () => {
     const peaks = envelopeToPeaks(env);
     expect(peaks.length).toBe(1);
     expect(peaks[0].length).toBe(2);
-    expect(peaks[0][0]).toBeCloseTo(16384 / 32768, 6);
+  });
+});
+
+describe("envelopeToPeaks — vertical normalization", () => {
+  // A steady 0.1-magnitude tone (well below full scale) at 1000 Hz.
+  function quietTone(msBuckets: number): Uint8Array {
+    const amp = Math.round(0.1 * 32768);
+    const samples: number[] = [];
+    for (let i = 0; i < msBuckets; i++) samples.push(i % 2 === 0 ? amp : -amp);
+    return buildWavPcm16(1000, samples);
+  }
+
+  it("boosts a quiet recording toward the target height", () => {
+    const peaks = envelopeToPeaks(computeEnvelopeFromWav(quietTone(200)));
+    // Raw magnitude ~0.1; normalized reference should reach ~0.9 (the target).
+    const loudest = Math.max(...peaks[0].map(Math.abs));
+    expect(loudest).toBeGreaterThan(0.8);
+    expect(loudest).toBeLessThanOrEqual(1);
+  });
+
+  it("is robust to a single loud click (percentile reference, not absolute max)", () => {
+    // 199 quiet buckets + one full-scale click. Absolute-max normalization would
+    // leave the quiet body ~0.1; percentile-based keeps boosting it.
+    const amp = Math.round(0.1 * 32768);
+    const samples: number[] = [];
+    for (let i = 0; i < 199; i++) samples.push(i % 2 === 0 ? amp : -amp);
+    samples.push(32767); // the click
+    const peaks = envelopeToPeaks(computeEnvelopeFromWav(buildWavPcm16(1000, samples)));
+
+    const quietBody = peaks[0].slice(0, 199).map(Math.abs);
+    expect(Math.max(...quietBody)).toBeGreaterThan(0.8);
+    // The click clamps to full scale rather than dictating the whole scale.
+    expect(Math.abs(peaks[0][199])).toBeLessThanOrEqual(1);
+  });
+
+  it("caps the gain so near-silence isn't amplified to full scale", () => {
+    // Magnitude ~0.001: uncapped gain would be ~900; cap holds it well below 1.
+    const tiny = Math.round(0.001 * 32768); // 33 → ~0.001007
+    const samples: number[] = [];
+    for (let i = 0; i < 200; i++) samples.push(i % 2 === 0 ? tiny : -tiny);
+    const peaks = envelopeToPeaks(computeEnvelopeFromWav(buildWavPcm16(1000, samples)));
+    const loudest = Math.max(...peaks[0].map(Math.abs));
+    expect(loudest).toBeLessThan(0.1); // ~0.001 × 32 gain ≈ 0.032, not ≈ 0.9
+  });
+
+  it("leaves pure silence flat (no divide-by-zero blow-up)", () => {
+    const peaks = envelopeToPeaks(computeEnvelopeFromWav(buildWavPcm16(1000, [0, 0, 0, 0])));
+    expect(peaks[0].every((v) => v === 0)).toBe(true);
+  });
+
+  it("does not shrink an already-full-scale recording", () => {
+    const full = 32767;
+    const samples: number[] = [];
+    for (let i = 0; i < 200; i++) samples.push(i % 2 === 0 ? full : -full);
+    const peaks = envelopeToPeaks(computeEnvelopeFromWav(buildWavPcm16(1000, samples)));
+    expect(Math.max(...peaks[0].map(Math.abs))).toBeCloseTo(1, 2);
   });
 });

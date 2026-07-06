@@ -12,6 +12,7 @@ import {
 import WaveSurfer from "wavesurfer.js";
 import type { Envelope } from "../../audio/EnvelopeCache";
 import { envelopeToPeaks } from "../../audio/envelope";
+import { t } from "../../l10n";
 import { LAMETA_WAVEFORM } from "../../lametaTheme";
 
 /**
@@ -77,6 +78,9 @@ export interface WaveformSurfaceProps {
   onSeek?(seconds: number): void;
   /** Render the interaction overlay in content coordinates, synced to scroll. */
   overlay?(viewport: Viewport): ReactNode;
+  /** Show a centered "Preparing waveform…" note over the (empty) surface while the
+   * envelope is still decoding (stage B of ProjectStore.load). */
+  loading?: boolean;
 }
 
 const DEFAULT_HEIGHT = 128;
@@ -122,6 +126,18 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
       // "redraw" event and mis-measure the MediaElement backend.
     }
 
+    // Size the content box BEFORE wavesurfer mounts. A layout effect runs before
+    // the passive create-effect below (and before paint), so `contentWidth` is
+    // already committed to the DOM when wavesurfer takes its first measurement —
+    // it then renders once, at the final zoom width. Without this, wavesurfer's
+    // first render lands at the pane width (contentWidth still 0 → CSS 100%) and
+    // a second render follows at the zoom width; that fit-to-pane render max-
+    // downsamples the (normalized) peaks into a solid block, so the correction
+    // reads as a flash of a totally different waveform.
+    useLayoutEffect(() => {
+      recompute();
+    }, [durationSec]);
+
     useEffect(() => {
       const container = waveRef.current;
       if (!container || durationSec <= 0) return;
@@ -157,6 +173,17 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
         recompute();
       });
       ws.on("interaction", (newTime: number) => onSeek?.(newTime));
+      // TEMP flash-diagnostic
+      ws.on("redraw", () => {
+        (window as unknown as { __wsRenders?: unknown[] }).__wsRenders ??= [];
+        (window as unknown as { __wsRenders: unknown[] }).__wsRenders.push({
+          t: performance.now(),
+          width: ws.getWidth(),
+          color: waveColor,
+        });
+        // eslint-disable-next-line no-console
+        console.log("[wsRedraw]", waveColor, ws.getWidth());
+      });
 
       // MediaElement backend with shared element may already be "ready".
       readyRef.current = true;
@@ -278,6 +305,22 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
             {ready && overlay?.(viewport)}
           </div>
         </div>
+        {props.loading && (
+          <div
+            css={css`
+              position: absolute;
+              inset: 0;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 13px;
+              color: #78909c;
+              pointer-events: none;
+            `}
+          >
+            {t("plugin.preparingWaveform", "Preparing waveform…")}
+          </div>
+        )}
       </div>
     );
   },

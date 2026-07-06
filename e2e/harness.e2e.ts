@@ -28,21 +28,20 @@ test.describe("harness smoke", () => {
     await openSample(page, { sel: "audio" });
     await page.getByRole("button", { name: /Manually segment/i }).click();
     // Creating the eaf jumps straight to it (mirrors lameta's rescan +
-    // selectFile); an empty eaf's default tab is Segments.
+    // selectFile); "Manually segment" opens the segmenter directly.
     await expect(fileTreeRow(page, SAMPLE_EAF_NAME)).toBeVisible();
     await expect(page.getByText(/Segments: 0/)).toBeVisible();
-    // The eaf selection shows its two tab chips.
+    // The eaf selection shows its single tab chip (the segmenter is in-pane now).
     await expect(tabChip(page, "transcription-translation")).toBeVisible();
-    await expect(tabChip(page, "segments")).toBeVisible();
+    await expect(tabChip(page, "segments")).toHaveCount(0);
 
     // Selecting the audio row again shows the "already annotated" note, not the
     // Start Annotating screen (an eaf now exists).
     await fileTreeRow(page, SAMPLE_MEDIA_NAME).click();
     await expect(page.getByText(/already has annotations/i)).toBeVisible();
 
-    // Back on the eaf row the grid is reachable via its chip.
+    // Back on the eaf row the grid opens by default (its single tab).
     await fileTreeRow(page, SAMPLE_EAF_NAME).click();
-    await tabChip(page, "transcription-translation").click();
     await expectGridVisible(page);
   });
 

@@ -12,14 +12,14 @@ test.describe("Start Annotating", () => {
     await expect(fileTreeRow(page, SAMPLE_EAF_NAME)).toHaveCount(0);
   });
 
-  test("Manually segment creates an empty eaf, opens its Segments tab, and resets cleanly", async ({
+  test("Manually segment creates an empty eaf, opens the segmenter, and resets cleanly", async ({
     page,
   }) => {
     await openSample(page, { sel: "audio" });
     await page.getByRole("button", { name: /Manually segment/i }).click();
 
     await expect(fileTreeRow(page, SAMPLE_EAF_NAME)).toBeVisible();
-    // A fresh manual eaf has no segments, so its Segments tab claims default.
+    // "Manually segment" opens the segmenter directly (0 boundaries yet).
     await expect(page.getByText(/Segments: 0/)).toBeVisible();
 
     await resetSample(page);

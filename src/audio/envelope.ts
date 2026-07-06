@@ -328,11 +328,66 @@ export async function computeEnvelope(bytes: Uint8Array, mimeOrExt?: string): Pr
 }
 
 /**
+ * Where the loudest displayed part of a normalized wave should reach, as a
+ * fraction of full scale. Slightly below 1 leaves a little headroom so the
+ * reference peak doesn't butt against the very top/bottom edge.
+ */
+const NORMALIZE_TARGET = 0.9;
+
+/**
+ * The reference amplitude is the per-ms magnitude at this percentile rather than
+ * the absolute maximum, so a single click/pop/mic-bump doesn't set the scale and
+ * leave the rest of a quiet recording looking flat. The (few) buckets above the
+ * reference simply clamp to full scale when drawn.
+ */
+const NORMALIZE_PERCENTILE = 0.99;
+
+/**
+ * Ceiling on the boost applied to quiet recordings, so a near-silent file isn't
+ * amplified until its noise floor fills the pane. We only ever amplify (gain ≥
+ * 1): recordings that already reach the target are left untouched.
+ */
+const MAX_NORMALIZE_GAIN = 32;
+
+function clampUnit(v: number): number {
+  return v < -1 ? -1 : v > 1 ? 1 : v;
+}
+
+/**
+ * A single vertical gain that brings a whole recording up to a consistent
+ * display height, so quiet recordings don't render as a nearly-flat line. Based
+ * on the {@link NORMALIZE_PERCENTILE}th percentile of the per-ms peak magnitude
+ * across all channels, capped at {@link MAX_NORMALIZE_GAIN} and floored at 1
+ * (we boost quiet recordings but never shrink loud ones).
+ */
+function normalizeGain(envelope: Envelope): number {
+  const n = envelope.channels.length === 0 ? 0 : envelope.channels[0].max.length;
+  if (n === 0) return 1;
+
+  const magnitudes = new Float32Array(n);
+  for (const ch of envelope.channels) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.max(Math.abs(ch.max[i]), Math.abs(ch.min[i]));
+      if (a > magnitudes[i]) magnitudes[i] = a;
+    }
+  }
+
+  // TypedArray.sort is numeric ascending (unlike Array.sort's string default).
+  magnitudes.sort();
+  const idx = Math.min(n - 1, Math.max(0, Math.floor(n * NORMALIZE_PERCENTILE)));
+  const reference = magnitudes[idx];
+  if (reference <= 0) return 1;
+  return Math.max(1, Math.min(MAX_NORMALIZE_GAIN, NORMALIZE_TARGET / reference));
+}
+
+/**
  * Convenience adapter to feed wavesurfer v7's precomputed `peaks` input, which
- * accepts one array per channel. We return each channel's per-ms `max` array
- * (normalized [-1, 1]); the waveform component can also read `envelope.channels`
- * directly if it wants the full min/max pair.
+ * accepts one array per channel. We return each channel's per-ms `max` array,
+ * scaled by a single {@link normalizeGain} so a quiet recording fills the pane
+ * vertically instead of showing very little signal; the waveform component can
+ * also read `envelope.channels` directly if it wants the raw min/max pair.
  */
 export function envelopeToPeaks(envelope: Envelope): number[][] {
-  return envelope.channels.map((ch) => Array.from(ch.max));
+  const gain = normalizeGain(envelope);
+  return envelope.channels.map((ch) => Array.from(ch.max, (v) => clampUnit(v * gain)));
 }

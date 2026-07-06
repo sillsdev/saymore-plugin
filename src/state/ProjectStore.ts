@@ -5,7 +5,7 @@ import { SessionFolder, annotationsEafName } from "../fs/SessionFolder";
 import { OralAnnotationIndex } from "../fs/OralAnnotationFiles";
 import { EnvelopeCache, type Envelope } from "../audio/EnvelopeCache";
 import { computeEnvelope } from "../audio/envelope";
-import { MediaElementPlaybackEngine } from "../audio/PlaybackEngine";
+import { MediaElementPlaybackEngine, createAudioElement } from "../audio/PlaybackEngine";
 import { AnnotationDocumentStore } from "./AnnotationDocumentStore";
 import { SegmenterViewModel } from "./SegmenterViewModel";
 import { RecorderViewModel } from "./recorder/RecorderViewModel";
@@ -20,6 +20,13 @@ import { autoSegmentToEaf, buildAutoSegmentedEafXml } from "../audio/autoSegment
 
 /** Which view the Annotations pane shows (plugin + harness UI; Track C consumes). */
 export type AnnotationsView = "grid" | "segmenter" | "recorder-careful" | "recorder-translation";
+
+/**
+ * Which step of {@link ProjectStore.load} is in flight. Drives the connecting/loading
+ * notice so it names the *actual* wait (reading the whole media file, then decoding it
+ * to build the waveform) instead of the misleading blanket "Connecting to lameta…".
+ */
+export type LoadPhase = "idle" | "reading" | "decoding" | "annotations";
 
 function extOf(name: string): string {
   const i = name.lastIndexOf(".");
@@ -90,9 +97,27 @@ export class ProjectStore {
   autoSegmentProgress = 0;
 
   loading = false;
+  /** The in-flight {@link load} step, for an honest loading notice (see {@link LoadPhase}). */
+  loadPhase: LoadPhase = "idle";
   error: string | undefined = undefined;
   /** True in single-file mode: no session folder, save = download. */
   singleFileMode = false;
+
+  /**
+   * Bumped by every {@link load}/{@link reset} so the background envelope decode (which
+   * outlives `load`'s promise) can tell whether it's still the current session before it
+   * writes results back — a stale decode from a superseded load must not clobber state.
+   */
+  private loadSeq = 0;
+
+  /**
+   * One shared source-media `<audio>` element for the session, handed to the segmenter's
+   * and recorder's playback engines. Created empty at load time so those views build (and
+   * their tabs render) immediately; its `src` is attached once the media bytes finish
+   * reading in the background. The store owns it (both engines wrap it un-owned), so it's
+   * cleaned up in {@link reset}.
+   */
+  private sourceMediaEl: HTMLMediaElement | undefined = undefined;
 
   constructor() {
     makeAutoObservable(this, { envelopeCache: false });
@@ -110,52 +135,158 @@ export class ProjectStore {
     await this.load(adapter, true);
   }
 
+  /**
+   * Open a session progressively so the UI appears before the expensive media decode:
+   *
+   *  - **A1** — parse the (small) `.eaf` and reveal the transcription grid. Its rows are
+   *    editable immediately; the waveform and playback aren't up yet.
+   *  - **A2** — read the media bytes → an object URL (playback) + the oral index + the
+   *    segmenter. None of this needs the decoded waveform, so play / Edit Segments and the
+   *    oral recorder/viewer flows (which only need `document` + `oralIndex`) light up here.
+   *    `openSession`'s promise resolves at the end of A2, so callers that then open a
+   *    recorder/viewer still find everything they need.
+   *  - **B** — the costly `decodeAudioData`/PCM scan, in the background (see
+   *    {@link decodeEnvelopeInBackground}); the waveform fills in when it lands.
+   *
+   * `durationSec` stays 0 until B so {@link WaveformSurface} never spins up a redundant
+   * decode of its own from `mediaUrl` (it no-ops while duration ≤ 0), then fills in with the
+   * precomputed peaks the moment the envelope arrives.
+   */
   private async load(adapter: FileSystemAdapter, singleFile: boolean): Promise<void> {
     this.reset();
+    const seq = ++this.loadSeq;
     runInAction(() => {
       this.loading = true;
+      this.loadPhase = "annotations";
       this.singleFileMode = singleFile;
     });
     try {
       const session = await SessionFolder.open(adapter);
       if (!session) throw new Error("No media file found in the selected folder.");
-
-      const mediaBytes = await adapter.readBytes(session.mediaFileName);
-      const ext = extOf(session.mediaFileName);
-      const envelope = await computeEnvelope(mediaBytes, ext);
-      this.envelopeCache.set(session.mediaFileName, envelope);
-
-      const url =
-        typeof URL !== "undefined" && URL.createObjectURL
-          ? URL.createObjectURL(new Blob([toArrayBuffer(mediaBytes)], { type: mimeForExt(ext) }))
-          : undefined;
+      const mediaFileName = session.mediaFileName;
+      const ext = extOf(mediaFileName);
 
       const eafText = await session.loadEafText(adapter);
-
-      runInAction(() => {
-        this.adapter = adapter;
-        this.mediaFileName = session.mediaFileName;
-        this.mediaUrl = url;
-        this.envelope = envelope;
-      });
+      if (this.loadSeq !== seq) return;
 
       if (eafText === undefined) {
-        // State A: media with no `.eaf` — offer the Start Annotating methods.
+        // State A (standalone/harness): media with no `.eaf`. The Start Annotating
+        // "Auto-segment" method needs the envelope, so this path still reads + decodes up
+        // front before offering the buttons (the embedded flow reaches State A in App.tsx,
+        // before load()).
         runInAction(() => {
-          this.startAnnotatingMedia = session.mediaFileName;
+          this.loadPhase = "reading";
+        });
+        const mediaBytes = await adapter.readBytes(mediaFileName);
+        if (this.loadSeq !== seq) return;
+        const url = makeObjectUrl(mediaBytes, ext);
+        runInAction(() => {
+          this.loadPhase = "decoding";
+        });
+        const envelope = await computeEnvelope(mediaBytes, ext);
+        if (this.loadSeq !== seq) return;
+        this.envelopeCache.set(mediaFileName, envelope);
+        runInAction(() => {
+          this.adapter = adapter;
+          this.mediaFileName = mediaFileName;
+          this.mediaUrl = url;
+          this.envelope = envelope;
+          this.startAnnotatingMedia = mediaFileName;
           this.loading = false;
+          this.loadPhase = "idle";
         });
         return;
       }
 
-      await this.buildSegmenter(eafText);
+      // A1 — reveal the grid from the `.eaf` alone.
+      const document = new AnnotationDocumentStore();
+      document.init(mediaFileName, 0, eafText); // durationSec filled in by stage B
       runInAction(() => {
-        this.loading = false;
+        this.adapter = adapter;
+        this.mediaFileName = mediaFileName;
+        this.document = document;
+        this.startAnnotatingMedia = undefined;
+        // Grid-first: opening a session lands on the transcription grid (John's decision).
+        this.annotationsView = "grid";
+        this.loadPhase = "reading";
       });
+
+      // A2 — oral index + segmenter over a still-empty shared media element. None of this
+      // touches the source media bytes, so the segmenter (and, via the caller, the oral
+      // recorder/viewer) builds and its tab renders BEFORE the media read — which for a big
+      // file is the slow part. `openSession` resolves at the end of A2.
+      const oralIndex = await OralAnnotationIndex.build(adapter, mediaFileName);
+      if (this.loadSeq !== seq) return;
+      const combinedWavExists = await adapter.exists(combinedOralWavName(mediaFileName));
+      if (this.loadSeq !== seq) return;
+      const sourceMediaEl = createAudioElement("");
+      const playback = new MediaElementPlaybackEngine(sourceMediaEl);
+      const segmenter = new SegmenterViewModel({
+        document,
+        playback,
+        adapter: singleFile ? undefined : adapter,
+        oralIndex,
+      });
+      runInAction(() => {
+        this.sourceMediaEl = sourceMediaEl;
+        this.oralIndex = oralIndex;
+        this.combinedWavExists = combinedWavExists;
+        this.segmenter = segmenter;
+        this.loading = false;
+        this.loadPhase = "reading";
+      });
+
+      // B — read the media bytes (attach the source for playback) then decode the waveform,
+      // all in the background; `openSession` has already resolved.
+      void this.loadMediaInBackground(seq, adapter, mediaFileName, ext, document, sourceMediaEl);
     } catch (e) {
+      if (this.loadSeq !== seq) return;
       runInAction(() => {
         this.error = e instanceof Error ? e.message : String(e);
         this.loading = false;
+        this.loadPhase = "idle";
+      });
+    }
+  }
+
+  /**
+   * Stage B of {@link load}: read the (whole) media file over the host bridge — the real
+   * cost of opening a session — then decode its waveform envelope, all after the shell is
+   * already on screen. Attaches the source URL to the shared media element (playback becomes
+   * live) and publishes the envelope + real `durationSec` (the waveform fills in). Bails if a
+   * newer load has superseded this one; a failure leaves the (usable) shell up.
+   */
+  private async loadMediaInBackground(
+    seq: number,
+    adapter: FileSystemAdapter,
+    mediaFileName: string,
+    ext: string,
+    document: AnnotationDocumentStore,
+    sourceMediaEl: HTMLMediaElement,
+  ): Promise<void> {
+    try {
+      const mediaBytes = await adapter.readBytes(mediaFileName);
+      if (this.loadSeq !== seq) return;
+      const url = makeObjectUrl(mediaBytes, ext);
+      runInAction(() => {
+        if (url) sourceMediaEl.src = url;
+        this.mediaUrl = url;
+        this.loadPhase = "decoding";
+      });
+
+      const envelope = await computeEnvelope(mediaBytes, ext);
+      if (this.loadSeq !== seq) return;
+      this.envelopeCache.set(mediaFileName, envelope);
+      runInAction(() => {
+        this.envelope = envelope;
+        document.durationSec = envelope.durationSec;
+        this.loadPhase = "idle";
+      });
+    } catch {
+      if (this.loadSeq !== seq) return;
+      // Leave the (usable) shell up; the waveform view simply shows nothing to draw.
+      runInAction(() => {
+        this.loadPhase = "idle";
       });
     }
   }
@@ -232,7 +363,11 @@ export class ProjectStore {
     const oralIndex = this.oralIndex;
     if (!document || !oralIndex) return;
     const store = await RecordingFileStore.build(this.adapter, oralIndex, this.mediaFileName);
-    const playback = new MediaElementPlaybackEngine(this.mediaUrl ?? "");
+    // Share the session's source-media element (its `src` attaches when the background read
+    // finishes) so the recorder tab renders now instead of waiting on the media read.
+    const playback = new MediaElementPlaybackEngine(
+      this.sourceMediaEl ?? this.mediaUrl ?? "",
+    );
     const vm = new RecorderViewModel({
       kind,
       document,
@@ -400,9 +535,22 @@ export class ProjectStore {
   }
 
   private reset(): void {
+    // Abandon any background envelope decode still running for the previous session.
+    this.loadSeq++;
     this.disposeRecorder();
     this.disposeOralViewer();
     this.segmenter?.dispose();
+    // The shared source element is owned here (the playback engines wrap it un-owned), so
+    // release it ourselves before revoking its object URL.
+    if (this.sourceMediaEl) {
+      try {
+        this.sourceMediaEl.pause();
+        this.sourceMediaEl.removeAttribute("src");
+      } catch {
+        /* element may be detached */
+      }
+      this.sourceMediaEl = undefined;
+    }
     if (this.mediaUrl && typeof URL !== "undefined" && URL.revokeObjectURL) {
       URL.revokeObjectURL(this.mediaUrl);
     }
@@ -417,6 +565,7 @@ export class ProjectStore {
     this.annotationsView = "segmenter";
     this.startAnnotatingMedia = undefined;
     this.autoSegmentProgress = 0;
+    this.loadPhase = "idle";
     this.error = undefined;
   }
 }
@@ -435,4 +584,11 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
   return copy.buffer;
+}
+
+/** A playback object URL for the media bytes (undefined in non-DOM envs, e.g. node specs). */
+function makeObjectUrl(bytes: Uint8Array, ext: string): string | undefined {
+  return typeof URL !== "undefined" && URL.createObjectURL
+    ? URL.createObjectURL(new Blob([toArrayBuffer(bytes)], { type: mimeForExt(ext) }))
+    : undefined;
 }

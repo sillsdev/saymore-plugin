@@ -1,0 +1,9 @@
+/* Global reset. The plugin's panes size themselves to the frame lameta hands the
+ * iframe (e.g. the annotations grid is `height: 100vh`), so the user-agent's default
+ * ~8px body margin must go — otherwise `100vh` + margin overflows the frame and the
+ * host wraps us in a page-level scrollbar. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+}

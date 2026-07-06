@@ -13,13 +13,6 @@ export interface TabQuery {
   hasAnnotationsEaf: boolean;
   /** Whether the file is a generated `<media>.oralAnnotations.wav` (by name). */
   isOralAnnotations: boolean;
-  /**
-   * For a selected `.eaf`: whether it has any segments yet (resolved LIVE per
-   * query). An empty eaf defaults to the "Segments" tab — there is nothing to
-   * transcribe until boundaries exist, and it is what makes "Manually segment"
-   * land in the segmenter after `selectFile`.
-   */
-  eafHasSegments: boolean;
 }
 
 /**
@@ -28,9 +21,9 @@ export interface TabQuery {
  *
  *  - a `<media>.oralAnnotations.wav`  → "Careful Speech" (default) + "Oral Translation"
  *    (the two recorders) + "Combined Audio" (the 3-channel viewer)
- *  - a `.eaf` is selected            → "Transcription & Translation" (the grid) +
- *    "Segments" (the manual segmenter); the grid is default once segments exist,
- *    the segmenter while the eaf is still empty
+ *  - a `.eaf` is selected            → one "Transcription & Translation" tab (the grid);
+ *    the manual segmenter is reached from the grid's own "Edit Segments" button,
+ *    not a separate host tab
  *  - an Audio/Video file with no `.eaf` yet → one "Start Annotating" tab (a WAV goes straight
  *    to the setup buttons; any other type is offered file-conversion first, see App.tsx)
  *  - an Audio file that already has an `.eaf` → NO tab (annotate via the `.eaf`'s own tab)
@@ -56,12 +49,7 @@ export function computeTabs(query: TabQuery): TabDescriptor[] {
       {
         id: "transcription-translation",
         label: t("tab.transcriptionTranslation", "Transcription & Translation"),
-        claimDefault: query.eafHasSegments,
-      },
-      {
-        id: "segments",
-        label: t("tab.segments", "Segments"),
-        claimDefault: !query.eafHasSegments,
+        claimDefault: true,
       },
     ];
   }
@@ -81,7 +69,7 @@ export function computeTabs(query: TabQuery): TabDescriptor[] {
  */
 export async function resolveSaymoreTabs(
   query: TabProviderQuery,
-  companions: Pick<PluginCompanionsApiV1, "exists" | "readText">,
+  companions: Pick<PluginCompanionsApiV1, "exists">,
 ): Promise<TabDescriptor[]> {
   const extension = query.file.extension.toLowerCase();
   const { lametaType, name } = query.file;
@@ -100,23 +88,10 @@ export async function resolveSaymoreTabs(
     }
   }
 
-  // A selected eaf: peek at its content (it is within its own first-dot-stem
-  // companion scope) to pick the default tab. On any failure fall back to
-  // "has segments" — the grid default.
-  let eafHasSegments = true;
-  if (!isOralAnnotations && extension === "eaf") {
-    try {
-      eafHasSegments = /<ALIGNABLE_ANNOTATION\b/.test(await companions.readText(name));
-    } catch {
-      eafHasSegments = true;
-    }
-  }
-
   return computeTabs({
     extension,
     lametaType,
     hasAnnotationsEaf,
     isOralAnnotations,
-    eafHasSegments,
   });
 }

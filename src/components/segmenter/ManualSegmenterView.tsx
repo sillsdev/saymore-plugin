@@ -212,6 +212,7 @@ export const ManualSegmenterView = observer(function ManualSegmenterView(props: 
           mediaElement={mediaElement}
           mediaUrl={store.mediaUrl}
           minPxPerSec={vm.minPxPerSec}
+          loading={!store.envelope}
           onSeek={(seconds) => vm.setCursor(seconds)}
           overlay={(viewport) => <BoundaryLayer vm={vm} viewport={viewport} />}
         />

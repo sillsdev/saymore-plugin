@@ -42,8 +42,8 @@ export function fileTreeRow(page: Page, name: string) {
 
 /**
  * A harness tab chip (see src/harness/TabChip.tsx) by the TabDescriptor id the
- * plugin claims for the selection: "transcription-translation" / "segments" on
- * a `.eaf`; "careful-speech" / "oral-translation" / "combined-audio" on the
+ * plugin claims for the selection: "transcription-translation" on a `.eaf`;
+ * "careful-speech" / "oral-translation" / "combined-audio" on the
  * OralAnnotations node.
  */
 export function tabChip(page: Page, id: string) {
@@ -218,12 +218,12 @@ export const LISTEN_SEGMENT0_HOLD_MS = 1800; // segment 0 is ~1s
 
 /**
  * Two real segments ([0, 1s], [1s, 2.5s]). "Manually segment" lands directly
- * in the segmenter (the empty eaf's Segments tab claims default); boundaries
- * are placed via the segmenter's DEV debug hook (`window.__seg`, exposed by
+ * in the segmenter (an explicit choice to segment); boundaries are placed via
+ * the segmenter's DEV debug hook (`window.__seg`, exposed by
  * ManualSegmenterView) — the earlier real-time listen+Enter technique missed
- * boundaries under parallel-worker CPU load. Ends back on the grid. Assumes
- * the audio row is already selected with no eaf yet (see
- * `openSample(page, { sel: "audio" })`).
+ * boundaries under parallel-worker CPU load. Ends back on the grid (via the
+ * segmenter's "Back" button). Assumes the audio row is already selected with no
+ * eaf yet (see `openSample(page, { sel: "audio" })`).
  */
 export async function createTwoRealSegments(page: Page): Promise<void> {
   await page.getByRole("button", { name: /Manually segment/i }).click();
@@ -244,7 +244,7 @@ export async function createTwoRealSegments(page: Page): Promise<void> {
   await expect(page.getByText(/Segments: 2/)).toBeVisible();
   await page.waitForTimeout(700); // let the debounced eaf auto-save flush
 
-  await tabChip(page, "transcription-translation").click();
+  await page.getByRole("button", { name: /Back/i }).click();
   await expectGridVisible(page);
 }
 

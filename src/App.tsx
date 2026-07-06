@@ -2,7 +2,7 @@
 import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ProjectStore } from "./state/ProjectStore";
+import { ProjectStore, type LoadPhase } from "./state/ProjectStore";
 import { OpenScreen } from "./components/shell/OpenScreen";
 import { StartAnnotatingView } from "./components/shell/StartAnnotatingView";
 import { FileConversionView } from "./components/shell/FileConversionView";
@@ -41,6 +41,10 @@ export const App = observer(function App() {
   const [store] = useState(() => new ProjectStore());
   const embedded = useMemo(() => isEmbeddedInHost(), []);
   const [connectError, setConnectError] = useState<string | undefined>(undefined);
+  // False until the lameta handshake resolves. The bulk of a tab's startup is *after*
+  // this (reading + decoding the media, see ProjectStore.load), so the notice must stop
+  // saying "Connecting…" once we're connected and name the real wait instead.
+  const [connected, setConnected] = useState(false);
   // True in the hidden tab-provider instance → render nothing (it just answers getTabs).
   const [providerMode, setProviderMode] = useState(false);
   // Set when the selected Audio file has no `.eaf` yet → show State A (Start Annotating).
@@ -52,6 +56,10 @@ export const App = observer(function App() {
   // selection ("careful-speech" / "oral-translation") → render RecorderView alone,
   // with no grid to exit back to.
   const [oralRecorderTab, setOralRecorderTab] = useState(false);
+  // Set for a Combined Audio (viewer) tab before the session loads, so the load shows the
+  // viewer's own loading state — not a flash of the transcription grid (which `store.document`
+  // would otherwise reveal mid-load).
+  const [oralViewerPending, setOralViewerPending] = useState(false);
   const connRef = useRef<PluginConnection | undefined>(undefined);
 
   useEffect(() => {
@@ -61,6 +69,7 @@ export const App = observer(function App() {
       try {
         const { context, api } = await connectToLameta();
         if (cancelled) return;
+        setConnected(true);
 
         // Hidden provider instance: serve tab queries live (query-per-selection, uncached);
         // its `companions.*` are scoped by the host to each queried file.
@@ -103,20 +112,26 @@ export const App = observer(function App() {
             return;
           }
         }
+        // Which pane this iframe is (see tabProvider.ts). Decided BEFORE loading so the
+        // correct shell (recorder / viewer / grid) is on screen for the whole load — set
+        // after `openSession` it would flash the grid, which `store.document` reveals as
+        // soon as A1 lands. A missing tabId (pre-provider host) gets the selection's
+        // default: the viewer for oral, the grid for an `.eaf`.
+        const isOralRecorder =
+          conn.selectionKind === "oralAnnotations" &&
+          (conn.tabId === "careful-speech" || conn.tabId === "oral-translation");
+        const isOralViewer = conn.selectionKind === "oralAnnotations" && !isOralRecorder;
+        if (isOralRecorder) setOralRecorderTab(true);
+        if (isOralViewer) setOralViewerPending(true);
+
         await store.openSession(conn.adapter);
         if (cancelled) return;
-        // Route the pane by which provider-claimed tab this iframe is (see
-        // tabProvider.ts). A missing tabId (pre-provider host) gets each
-        // selection's default: the viewer / the grid.
-        if (conn.selectionKind === "oralAnnotations") {
-          if (conn.tabId === "careful-speech" || conn.tabId === "oral-translation") {
-            setOralRecorderTab(true);
-            store.openRecorder(conn.tabId === "careful-speech" ? "Careful" : "Translation");
-          } else {
-            store.openOralAnnotationsViewer();
-          }
-        } else if (conn.selectionKind === "eaf" && conn.tabId === "segments") {
-          store.showSegmenter();
+        // The segmenter/manual view for an `.eaf` is reached in-pane via the grid's
+        // "Edit Segments" button, so there is nothing to route there.
+        if (isOralRecorder) {
+          store.openRecorder(conn.tabId === "careful-speech" ? "Careful" : "Translation");
+        } else if (isOralViewer) {
+          store.openOralAnnotationsViewer();
         }
       } catch (e) {
         if (!cancelled) setConnectError(e instanceof Error ? e.message : String(e));
@@ -148,8 +163,9 @@ export const App = observer(function App() {
     } catch {
       setStartMediaName(undefined);
       await store.openSession(conn.adapter);
-      // Mirror the provider's empty-eaf default: manual segmentation starts in
-      // the segmenter (with `selectFile` the host lands on the Segments tab).
+      // "Manually segment" is an explicit choice to segment, so open the
+      // segmenter directly (with `selectFile` the host lands on the eaf's grid
+      // tab, from which "Edit Segments" reaches the same segmenter).
       store.showSegmenter();
     }
   }
@@ -222,11 +238,21 @@ export const App = observer(function App() {
           store.recorder ? (
             <RecorderView store={store} />
           ) : (
-            <PluginConnecting error={connectError ?? store.error} />
+            <PluginConnecting
+              error={connectError ?? store.error}
+              message={connectingMessage(connected, store.loadPhase)}
+            />
           )
-        ) : store.oralViewer ? (
-          <OralAnnotationsViewerView store={store} />
-        ) : store.segmenter ? (
+        ) : oralViewerPending ? (
+          store.oralViewer ? (
+            <OralAnnotationsViewerView store={store} />
+          ) : (
+            <PluginConnecting
+              error={connectError ?? store.error}
+              message={connectingMessage(connected, store.loadPhase)}
+            />
+          )
+        ) : store.document ? (
           <AnnotationsPaneView store={store} onSetupOralAnnotations={handleSetupOralAnnotations} />
         ) : convertMediaName ? (
           <FileConversionView
@@ -237,7 +263,10 @@ export const App = observer(function App() {
         ) : startMediaName ? (
           <StartAnnotatingView onStart={handleStartAnnotating} onAutoSegment={handleAutoSegment} />
         ) : (
-          <PluginConnecting error={connectError ?? store.error} />
+          <PluginConnecting
+            error={connectError ?? store.error}
+            message={connectingMessage(connected, store.loadPhase)}
+          />
         )}
       </ErrorBoundary>
     );
@@ -269,8 +298,29 @@ export const App = observer(function App() {
   );
 });
 
-/** Status shown inside the host iframe while connecting / on connect failure. */
-function PluginConnecting(props: { error: string | undefined }) {
+/**
+ * The startup notice's text. Each plugin tab (Start Annotating, Transcription &
+ * Translation, Careful Speech, Oral Translation, Combined Audio) is its own cold-start
+ * iframe, so this shows on every tab switch. The lameta handshake is quick; the real wait
+ * is reading the whole media file and decoding it for the waveform — so once `connected`,
+ * we name the actual step instead of leaving "Connecting…" up for the whole load.
+ */
+function connectingMessage(connected: boolean, loadPhase: LoadPhase): string {
+  if (!connected) return t("plugin.connecting", "Connecting to lameta…");
+  switch (loadPhase) {
+    case "reading":
+      return t("plugin.loadingMedia", "Loading media…");
+    case "decoding":
+      return t("plugin.preparingWaveform", "Preparing waveform…");
+    case "annotations":
+      return t("plugin.loadingAnnotations", "Loading annotations…");
+    default:
+      return t("plugin.loading", "Loading…");
+  }
+}
+
+/** Status shown inside the host iframe while connecting/loading, or on connect failure. */
+function PluginConnecting(props: { error: string | undefined; message: string }) {
   return (
     <div
       css={css`
@@ -290,7 +340,7 @@ function PluginConnecting(props: { error: string | undefined }) {
           {props.error}
         </p>
       ) : (
-        <p>{t("plugin.connecting", "Connecting to lameta…")}</p>
+        <p>{props.message}</p>
       )}
     </div>
   );

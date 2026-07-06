@@ -15,6 +15,15 @@ import { LAMETA_UI_FONT } from "../../lametaTheme";
  * DOM-preserving document store), and a real per-segment play button. The
  * per-column "Options ▾" menus are stubbed; full grid UX (autoplay, ignore
  * styling, fonts, keyboard nav) is out of scope for this first slice.
+ *
+ * It's a plain HTML `<table>` with `table-layout: fixed` so header and body
+ * columns are guaranteed to line up: two narrow fixed columns (row number, play)
+ * and two equal-width text columns (Transcription, Free Translation).
+ *
+ * The table lives in a vertically-scrolling container that fills the height its
+ * parent (the grid pane) gives it, and the header row is `position: sticky` so it
+ * stays visible while the rows scroll under it — so the whole grid never overflows
+ * the frame lameta hands the iframe.
  */
 export const TranscriptionGrid = observer(function TranscriptionGrid(props: {
   store: ProjectStore;
@@ -42,99 +51,118 @@ export const TranscriptionGrid = observer(function TranscriptionGrid(props: {
   return (
     <div
       css={css`
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
         border: 1px solid #b7d59b;
-        font-family: ${LAMETA_UI_FONT};
-        font-size: 13px;
       `}
     >
-      <div
+      <table
         css={css`
-          display: grid;
-          grid-template-columns: 40px 44px 1fr 1fr;
-          background: #f4f7f0;
-          border-bottom: 1px solid #b7d59b;
-          font-weight: 600;
-          color: #33691e;
+          table-layout: fixed;
+          width: 100%;
+          border-collapse: collapse;
+          font-family: ${LAMETA_UI_FONT};
+          font-size: 13px;
+          color: #37474f;
         `}
       >
-        <HeaderCell />
-        <HeaderCell />
-        <HeaderCell label={t("grid.transcription", "Transcription")} withOptions />
-        <HeaderCell label={t("grid.freeTranslation", "Free Translation")} withOptions />
-      </div>
-
-      {segments.length === 0 && (
-        <div
-          css={css`
-            padding: 10px;
-            color: #78909c;
-          `}
-        >
-          {t("grid.empty", "No segments yet. Use the “Segments” tab to add boundaries.")}
-        </div>
-      )}
-
-      {segments.map((seg, i) => {
-        const selected = i === selectedRow;
-        return (
-          <div
-            key={i}
-            onClick={() => setSelectedRow(i)}
+        <colgroup>
+          <col css={{ width: 40 }} />
+          <col css={{ width: 44 }} />
+          <col />
+          <col />
+        </colgroup>
+        <thead>
+          <tr
             css={css`
-              display: grid;
-              grid-template-columns: 40px 44px 1fr 1fr;
-              min-height: 34px;
-              background: ${selected ? "#cfe4ff" : "#fff"};
-              border-bottom: 1px solid #eceff1;
+              background: #f4f7f0;
+              border-bottom: 1px solid #b7d59b;
+              color: #33691e;
             `}
           >
-            <div css={cellCss}>{i + 1}</div>
-            <div
-              css={[
-                cellCss,
-                css`
-                  justify-content: center;
-                `,
-              ]}
-            >
-              <IconButton
-                title={t("grid.play", "Play this segment")}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  segmenter?.playSegment(i);
-                }}
-                disabled={!segmenter}
-                sx={{
-                  width: 22,
-                  height: 22,
-                  p: 0,
-                  fontSize: 12,
-                  lineHeight: 1,
-                  border: "2px solid #2e7d32",
-                  color: "#2e7d32",
-                  background: "#fff",
-                  "&:hover": { background: "#eef6ee" },
-                  "&.Mui-disabled": { opacity: 0.5 },
-                }}
+            <th css={headerCellCss} />
+            <th css={headerCellCss} />
+            <HeaderCell label={t("grid.transcription", "Transcription")} />
+            <HeaderCell label={t("grid.freeTranslation", "Free Translation")} />
+          </tr>
+        </thead>
+        <tbody>
+          {segments.length === 0 && (
+            <tr>
+              <td
+                colSpan={4}
+                css={css`
+                  padding: 10px;
+                  color: #78909c;
+                `}
               >
-                ▶
-              </IconButton>
-            </div>
-            <EditableCell
-              key={`tr-${i}-${rev}`}
-              initial={seg.transcription}
-              placeholder={t("grid.transcriptionPlaceholder", "transcription…")}
-              onCommit={(text) => void saveCell(store, i, "transcription", text)}
-            />
-            <EditableCell
-              key={`ft-${i}-${rev}`}
-              initial={seg.freeTranslation}
-              placeholder={t("grid.freeTranslationPlaceholder", "free translation…")}
-              onCommit={(text) => void saveCell(store, i, "freeTranslation", text)}
-            />
-          </div>
-        );
-      })}
+                {t("grid.empty", "No segments yet. Use “Edit Segments” to add boundaries.")}
+              </td>
+            </tr>
+          )}
+
+          {segments.map((seg, i) => {
+            const selected = i === selectedRow;
+            return (
+              <tr
+                key={i}
+                onClick={() => setSelectedRow(i)}
+                css={css`
+                  min-height: 34px;
+                  background: ${selected ? "#cfe4ff" : "#fff"};
+                  border-bottom: 1px solid #eceff1;
+                `}
+              >
+                <td css={dataCellCss}>{i + 1}</td>
+                <td
+                  css={[
+                    dataCellCss,
+                    css`
+                      text-align: center;
+                    `,
+                  ]}
+                >
+                  <IconButton
+                    title={t("grid.play", "Play this segment")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      segmenter?.playSegment(i);
+                    }}
+                    disabled={!segmenter}
+                    sx={{
+                      width: 22,
+                      height: 22,
+                      p: 0,
+                      fontSize: 12,
+                      lineHeight: 1,
+                      border: "2px solid #2e7d32",
+                      color: "#2e7d32",
+                      background: "#fff",
+                      "&:hover": { background: "#eef6ee" },
+                      "&.Mui-disabled": { opacity: 0.5 },
+                    }}
+                  >
+                    ▶
+                  </IconButton>
+                </td>
+                <EditableCell
+                  key={`tr-${i}-${rev}`}
+                  initial={seg.transcription}
+                  placeholder={t("grid.transcriptionPlaceholder", "transcription…")}
+                  onCommit={(text) => void saveCell(store, i, "transcription", text)}
+                />
+                <EditableCell
+                  key={`ft-${i}-${rev}`}
+                  initial={seg.freeTranslation}
+                  placeholder={t("grid.freeTranslationPlaceholder", "free translation…")}
+                  onCommit={(text) => void saveCell(store, i, "freeTranslation", text)}
+                />
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 });
@@ -156,29 +184,44 @@ async function saveCell(
   await doc.save(adapter);
 }
 
-const cellCss = css`
-  display: flex;
-  align-items: center;
+const dataCellCss = css`
   padding: 4px 8px;
-  color: #37474f;
+  vertical-align: middle;
+  border-right: 1px solid #eceff1;
+  overflow: hidden;
+  text-overflow: ellipsis;
 `;
 
-function HeaderCell(props: { label?: string; withOptions?: boolean }) {
+// Sticky so the header stays pinned while the body scrolls. The background and
+// bottom box-shadow live on the cells (not the row) because a sticky cell must
+// paint its own background, and collapsed row borders don't stick reliably.
+const headerCellCss = css`
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f4f7f0;
+  padding: 6px 8px;
+  text-align: left;
+  font-weight: 600;
+  border-right: 1px solid #dce7d0;
+  box-shadow: inset 0 -1px 0 #b7d59b;
+`;
+
+function HeaderCell(props: { label: string }) {
   return (
-    <div
-      css={css`
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 6px 8px;
-        border-right: 1px solid #dce7d0;
-      `}
-    >
-      <span>{props.label ?? ""}</span>
-      {props.withOptions && (
+    <th css={headerCellCss}>
+      <div
+        css={css`
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        `}
+      >
+        <span>{props.label}</span>
         <StubButton feature={props.label}>{t("grid.options", "Options")} ▾</StubButton>
-      )}
-    </div>
+      </div>
+    </th>
   );
 }
 
@@ -198,34 +241,42 @@ function EditableCell(props: {
   }
 
   return (
-    <input
-      value={value}
-      placeholder={props.placeholder}
-      onChange={(e) => setValue(e.target.value)}
-      onClick={(e) => e.stopPropagation()}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          (e.target as HTMLInputElement).blur();
-        } else if (e.key === "Escape") {
-          setValue(props.initial);
-          (e.target as HTMLInputElement).blur();
-        }
-      }}
+    <td
       css={css`
-        width: 100%;
-        border: none;
-        background: transparent;
-        padding: 4px 8px;
-        font: inherit;
-        color: #263238;
-        outline: none;
+        padding: 0;
+        vertical-align: middle;
         border-right: 1px solid #eceff1;
-        &:focus {
-          background: #fffde7;
-        }
       `}
-    />
+    >
+      <input
+        value={value}
+        placeholder={props.placeholder}
+        onChange={(e) => setValue(e.target.value)}
+        onClick={(e) => e.stopPropagation()}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            (e.target as HTMLInputElement).blur();
+          } else if (e.key === "Escape") {
+            setValue(props.initial);
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
+        css={css`
+          box-sizing: border-box;
+          width: 100%;
+          border: none;
+          background: transparent;
+          padding: 8px;
+          font: inherit;
+          color: #263238;
+          outline: none;
+          &:focus {
+            background: #fffde7;
+          }
+        `}
+      />
+    </td>
   );
 }

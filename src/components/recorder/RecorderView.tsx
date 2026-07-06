@@ -151,6 +151,7 @@ export const RecorderView = observer(function RecorderView(props: { store: Proje
             minPxPerSec={PIXELS_PER_SECOND_AT_100}
             waveColor={LAMETA_DARK_BLUE}
             waveOpacity={1}
+            loading={!store.envelope}
             overlay={(viewport) => <RecorderOverlay vm={vm} viewport={viewport} />}
           />
         </div>

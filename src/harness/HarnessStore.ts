@@ -244,21 +244,13 @@ export class HarnessStore {
     });
     await this.projectStore.openSession(adapter);
     runInAction(() => {
-      // Mirror the plugin's default tab for an eaf (see tabProvider.ts): the
-      // grid once segments exist, the segmenter while the eaf is still empty.
-      this.applyDefaultEafView();
+      // An eaf has a single tab now (see tabProvider.ts): always the grid. The
+      // manual segmenter is reached in-pane via the grid's "Edit Segments"
+      // button.
+      this.projectStore.showGrid();
       this.busy = false;
     });
     this.syncUrl();
-  }
-
-  /** The provider's live default for an eaf: Segments while empty, else the grid. */
-  private applyDefaultEafView(): void {
-    if ((this.projectStore.document?.segments.length ?? 0) === 0) {
-      this.projectStore.showSegmenter();
-    } else {
-      this.projectStore.showGrid();
-    }
   }
 
   /**
@@ -292,13 +284,12 @@ export class HarnessStore {
 
   /** After the SayMore-tab buttons create the eaf: mirror lameta's rescan +
    * selectFile — the tree gains the Annotations row, selection jumps to it, and
-   * the provider's live default tab opens (Segments for a fresh manual eaf,
-   * the grid for an auto-segmented one). */
+   * the eaf's single tab (the grid) opens. */
   async onEafCreated(): Promise<void> {
     await this.refreshTree();
     runInAction(() => {
       this.selection = "eaf";
-      this.applyDefaultEafView();
+      this.projectStore.showGrid();
     });
     this.syncUrl();
   }
@@ -316,6 +307,9 @@ export class HarnessStore {
   async runManual(): Promise<void> {
     await this.projectStore.startAnnotatingManual();
     await this.onEafCreated();
+    // "Manually segment" is an explicit choice to segment: open the segmenter
+    // directly (the same one the grid's "Edit Segments" button reaches).
+    this.projectStore.showSegmenter();
   }
 
   async runAuto(onProgress: (fraction: number) => void): Promise<void> {

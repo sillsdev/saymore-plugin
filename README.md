@@ -1,7 +1,13 @@
 **⚠️This is a Work in Progress**
 
 # Saymore Audio Annotation Plugin for Lameta
-A SayMore-compatible audio annotation SPA — Manual Segmenter, Auto Segmenter, and the Transcription / Free-Translation grid.
+A SayMore-compatible audio annotation — ELAN-compatible written and oral transcription and translation.
+
+<img width="698" height="328" alt="image" src="https://github.com/user-attachments/assets/b2972faa-f6c2-480c-a82d-8881d46b5d9b" />
+
+---
+
+<img width="689" height="438" alt="image" src="https://github.com/user-attachments/assets/00c2fb59-29cf-4ccb-86c7-033d536916c3" />
 
 ## Installing
 1) Get the latest release on the github page.

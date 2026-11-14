@@ -19,11 +19,19 @@ import {
 } from "./plugin/connectPlugin";
 import { connectToLameta, serveTabProvider } from "./plugin/lametaPluginClient";
 import { resolveSaymoreTabs } from "./plugin/tabProvider";
+import {
+  cancelSegmenterRequest,
+  requestSegmenterOn,
+  takeSegmenterRequest,
+} from "./plugin/segmenterHandoff";
 import { annotationsEafName, standardAudioName } from "./fs/SessionFolder";
 import { STANDARD_AUDIO_FFMPEG_ARGS } from "./model/SayMoreConstants";
 import { createEafFromTemplate, serializeEaf } from "./model/eaf/EafDocument";
 import { eafTemplateXml } from "./model/eaf/eafTemplate";
 import { autoSegmentToEaf } from "./audio/autoSegmentToEaf";
+import { computeEnvelope } from "./audio/envelope";
+import type { LabelTextTier } from "./import/audacityLabels";
+import { createEafFromChosenFile } from "./import/createFromFile";
 import { HostSimulator } from "./harness/HostSimulator";
 import { wantsOpenScreen } from "./harness/harnessRouter";
 import { t } from "./l10n";
@@ -102,8 +110,7 @@ export const App = observer(function App() {
             if (cancelled) return;
             if (wavExists) {
               try {
-                await conn.api.selectFile(wavName);
-                return;
+                if (await conn.api.selectFile(wavName)) return;
               } catch {
                 /* host without selectFile: fall through to the conversion offer */
               }
@@ -124,11 +131,14 @@ export const App = observer(function App() {
         if (isOralRecorder) setOralRecorderTab(true);
         if (isOralViewer) setOralViewerPending(true);
 
+        store.sessionDirectory = context.folder.directory;
         await store.openSession(conn.adapter);
         if (cancelled) return;
-        // The segmenter/manual view for an `.eaf` is reached in-pane via the grid's
-        // "Edit Segments" button, so there is nothing to route there.
-        if (isOralRecorder) {
+        // An `.eaf` opens on its grid, unless "Manually segment" just created it and left a
+        // request for the segmenter.
+        if (conn.selectionKind === "eaf" && takeSegmenterRequest(conn.selectedFileName)) {
+          store.showSegmenter();
+        } else if (isOralRecorder) {
           store.openRecorder(conn.tabId === "careful-speech" ? "Careful" : "Translation");
         } else if (isOralViewer) {
           store.openOralAnnotationsViewer();
@@ -158,16 +168,23 @@ export const App = observer(function App() {
       const xml = serializeEaf(createEafFromTemplate(eafTemplateXml, conn.selectedFileName));
       await conn.adapter.writeText(eafRel, xml);
     }
+    // selectFile resolves false when lameta cannot find the file; treat that like a host
+    // without selectFile.
+    let selected = false;
+    requestSegmenterOn(eafRel);
     try {
-      await conn.api.selectFile(eafRel);
+      selected = await conn.api.selectFile(eafRel);
     } catch {
-      setStartMediaName(undefined);
-      await store.openSession(conn.adapter);
-      // "Manually segment" is an explicit choice to segment, so open the
-      // segmenter directly (with `selectFile` the host lands on the eaf's grid
-      // tab, from which "Edit Segments" reaches the same segmenter).
-      store.showSegmenter();
+      /* host without selectFile */
     }
+    if (selected) return;
+    cancelSegmenterRequest();
+    setStartMediaName(undefined);
+    await store.openSession(conn.adapter);
+    // "Manually segment" is an explicit choice to segment, so open the
+    // segmenter directly (with `selectFile` the host lands on the eaf's grid
+    // tab, from which "Edit Segments" reaches the same segmenter).
+    store.showSegmenter();
   }
 
   // File-conversion screen "Convert": ask the host to run ffmpeg over the selected
@@ -184,7 +201,9 @@ export const App = observer(function App() {
       args: STANDARD_AUDIO_FFMPEG_ARGS,
       onProgress,
     });
-    await conn.api.selectFile(wavName);
+    if (!(await conn.api.selectFile(wavName))) {
+      throw new Error(`lameta could not select ${wavName}.`);
+    }
   }
 
   // Grid toolbar "Setup Oral Annotation": create the combined
@@ -216,6 +235,52 @@ export const App = observer(function App() {
       adapter: conn.adapter,
       mediaFileName: conn.selectedFileName,
       onProgress,
+    });
+    let selected = false;
+    try {
+      selected = await conn.api.selectFile(eafRel);
+    } catch {
+      /* host without selectFile */
+    }
+    if (selected) return;
+    setStartMediaName(undefined);
+    await store.openSession(conn.adapter);
+  }
+
+  // State A "Use Careful Speech Tool": SayMore opens the Careful Speech recorder on an
+  // annotation file that has no segments yet. Write the empty `.eaf`, load the session,
+  // create the combined `<media>.oralAnnotations.wav` and select it, so the host opens its
+  // Careful Speech tab (the recorder allows zero segments). Without `selectFile`, open the
+  // recorder inline.
+  async function handleCarefulSpeech(): Promise<void> {
+    const conn = connRef.current;
+    if (!conn) throw new Error("Not connected to lameta.");
+    const eafRel = annotationsEafName(conn.selectedFileName);
+    if (!(await conn.adapter.exists(eafRel))) {
+      const xml = serializeEaf(createEafFromTemplate(eafTemplateXml, conn.selectedFileName));
+      await conn.adapter.writeText(eafRel, xml);
+    }
+    await store.openSession(conn.adapter);
+    const combinedRel = await store.setupOralAnnotations();
+    try {
+      await conn.api.selectFile(combinedRel);
+    } catch {
+      setStartMediaName(undefined);
+      store.openRecorder("Careful");
+    }
+  }
+
+  // State A "Copy an existing ELAN file" / "Import an Audacity Label file": build the
+  // `.eaf` from the chosen file's text, then reveal it like the other methods.
+  async function handleUseFile(fileText: string, tier: LabelTextTier): Promise<void> {
+    const conn = connRef.current;
+    if (!conn) throw new Error("Not connected to lameta.");
+    const eafRel = await createEafFromChosenFile({
+      adapter: conn.adapter,
+      mediaFileName: conn.selectedFileName,
+      fileText,
+      tier,
+      getMediaDurationSec: () => mediaDurationSec(conn),
     });
     try {
       await conn.api.selectFile(eafRel);
@@ -253,7 +318,13 @@ export const App = observer(function App() {
             />
           )
         ) : store.document ? (
-          <AnnotationsPaneView store={store} onSetupOralAnnotations={handleSetupOralAnnotations} />
+          <AnnotationsPaneView
+            store={store}
+            onSetupOralAnnotations={handleSetupOralAnnotations}
+            runFfmpeg={
+              connRef.current ? (spec) => connRef.current!.api.ffmpeg.run(spec) : undefined
+            }
+          />
         ) : convertMediaName ? (
           <FileConversionView
             sourceName={convertMediaName}
@@ -261,7 +332,12 @@ export const App = observer(function App() {
             onConvert={handleConvert}
           />
         ) : startMediaName ? (
-          <StartAnnotatingView onStart={handleStartAnnotating} onAutoSegment={handleAutoSegment} />
+          <StartAnnotatingView
+            onStart={handleStartAnnotating}
+            onAutoSegment={handleAutoSegment}
+            onCarefulSpeech={handleCarefulSpeech}
+            onUseFile={handleUseFile}
+          />
         ) : (
           <PluginConnecting
             error={connectError ?? store.error}
@@ -283,6 +359,7 @@ export const App = observer(function App() {
           <StartAnnotatingView
             onStart={() => store.startAnnotatingManual()}
             onAutoSegment={(onProgress) => store.autoSegment(onProgress)}
+            onUseFile={(text, tier) => store.startAnnotatingFromFile(text, tier)}
           />
         ) : (
           <OpenScreen store={store} />
@@ -297,6 +374,25 @@ export const App = observer(function App() {
     </ErrorBoundary>
   );
 });
+
+/**
+ * The selected media's length in seconds: what ffprobe reports through the host, else the
+ * length of the decoded audio.
+ */
+async function mediaDurationSec(conn: PluginConnection): Promise<number> {
+  try {
+    const probe = await conn.api.ffmpeg.probe();
+    const sec =
+      probe.format.durationSec ?? probe.streams.find((s) => s.codecType === "audio")?.durationSec;
+    if (sec !== undefined && Number.isFinite(sec) && sec > 0) return sec;
+  } catch {
+    /* host without ffprobe: decode the audio instead */
+  }
+  const bytes = await conn.adapter.readBytes(conn.selectedFileName);
+  const dot = conn.selectedFileName.lastIndexOf(".");
+  const ext = dot === -1 ? "" : conn.selectedFileName.slice(dot).toLowerCase();
+  return (await computeEnvelope(bytes, ext)).durationSec;
+}
 
 /**
  * The startup notice's text. Each plugin tab (Start Annotating, Transcription &

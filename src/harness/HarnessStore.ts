@@ -3,6 +3,7 @@ import type { FileSystemAdapter } from "../fs/FileSystemAdapter";
 import { BrowserDirectoryAdapter } from "../fs/BrowserDirectoryAdapter";
 import type { ProjectStore } from "../state/ProjectStore";
 import { annotationsEafName } from "../fs/SessionFolder";
+import type { LabelTextTier } from "../import/audacityLabels";
 import { IndexedDbAdapter } from "./IndexedDbAdapter";
 import { ensureSampleSeeded, resetSampleSession } from "./sampleSession";
 import { deriveSessionTree, type SessionTree } from "./sessionTree";
@@ -315,6 +316,19 @@ export class HarnessStore {
   async runAuto(onProgress: (fraction: number) => void): Promise<void> {
     await this.projectStore.autoSegment(onProgress);
     await this.onEafCreated();
+  }
+
+  /** "Copy an existing ELAN file" / "Import an Audacity Label file". */
+  async runFromFile(fileText: string, tier: LabelTextTier): Promise<void> {
+    await this.projectStore.startAnnotatingFromFile(fileText, tier);
+    await this.onEafCreated();
+  }
+
+  /** "Use Careful Speech Tool": an empty eaf, then straight to the Careful Speech recorder. */
+  async runCarefulSpeech(): Promise<void> {
+    await this.projectStore.startAnnotatingManual();
+    await this.onEafCreated();
+    await this.setupOralAnnotations();
   }
 
   get eafName(): string | undefined {

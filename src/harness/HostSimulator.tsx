@@ -113,6 +113,8 @@ const Pane = observer(function Pane(props: { harness: HarnessStore; store: Proje
         <StartAnnotatingView
           onStart={() => harness.runManual()}
           onAutoSegment={(onProgress) => harness.runAuto(onProgress)}
+          onCarefulSpeech={() => harness.runCarefulSpeech()}
+          onUseFile={(text, tier) => harness.runFromFile(text, tier)}
         />
       </TabControl>
     );

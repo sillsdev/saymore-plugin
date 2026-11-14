@@ -1,0 +1,154 @@
+import type { AnnotationSegment } from "../model/AnnotationSegment";
+import { t } from "../l10n";
+import { exportAudacityLabels } from "./audacity";
+import { exportCsv } from "./csv";
+import { exportFlexText, FLEX_TEXT_HAS_BOM, type FlexTextOptions } from "./flexText";
+import { exportPlainText } from "./plainText";
+import { exportSrt } from "./srt";
+import { exportToolbox } from "./toolbox";
+
+/** What a host or browser needs in order to write one export. */
+export interface ExportFile {
+  /** SayMore's default file name in its Save dialog. */
+  fileName: string;
+  text: string;
+  mimeType: string;
+  /** Write a UTF-8 byte order mark first (SayMore's `XElement.Save` does; `File.CreateText` does not). */
+  bom: boolean;
+}
+
+/** What the exports need to know about the annotated session. */
+export interface ExportContext {
+  /** SayMore's `ParentElement.Id`: the session folder name. */
+  sessionId: string;
+  /** The annotated media file name, e.g. `X.wav`. */
+  mediaFileName: string;
+  /** Where FLEx should look for the media; the bare name when the folder is unknown. */
+  mediaFilePath: string;
+}
+
+export type ExportFormatId =
+  | "audacityFreeTranslation"
+  | "audacityTranscription"
+  | "flexInterlinear"
+  | "plainText"
+  | "srtFreeTranslation"
+  | "srtTranscription"
+  | "csv"
+  | "toolbox";
+
+export interface ExportFormat {
+  id: ExportFormatId;
+  /** The menu label SayMore shows. */
+  label: () => string;
+  tooltip?: () => string;
+  /** The format needs the Export dialog for writing systems before it can build. */
+  needsFlexOptions?: boolean;
+}
+
+/** SayMore's Export menu, in its order (the ELAN File item and the mp3 audio exports are not here). */
+export const EXPORT_FORMATS: readonly ExportFormat[] = [
+  {
+    id: "audacityFreeTranslation",
+    label: () => t("export.audacityFreeTranslation", "Audacity Label File (Free Translation)..."),
+  },
+  {
+    id: "audacityTranscription",
+    label: () => t("export.audacityTranscription", "Audacity Label File (Transcription)..."),
+  },
+  {
+    id: "flexInterlinear",
+    label: () => t("export.flexInterlinear", "FLEx Interlinear Text..."),
+    needsFlexOptions: true,
+  },
+  { id: "plainText", label: () => t("export.plainText", "Plain Text...") },
+  {
+    id: "srtFreeTranslation",
+    label: () => t("export.srtFreeTranslation", "Subtitles File (Free Translation)..."),
+    tooltip: () =>
+      t("export.srtTooltip", "The SRT format can be used to create subtitle (captioned) video"),
+  },
+  {
+    id: "srtTranscription",
+    label: () => t("export.srtTranscription", "Subtitles File (Transcription)..."),
+    tooltip: () =>
+      t("export.srtTooltip", "The SRT format can be used to create subtitle (captioned) video"),
+  },
+  {
+    id: "csv",
+    label: () => t("export.csv", "Spreadsheet (CSV) File..."),
+    tooltip: () =>
+      t("export.csvTooltip", "Use this for getting data into a spreadsheet application."),
+  },
+  { id: "toolbox", label: () => t("export.toolbox", "Toolbox File...") },
+];
+
+const fileName = (ctx: ExportContext, suffix: string, ext: string) =>
+  `${ctx.sessionId}_${suffix}${ext}`;
+
+const TEXT_MIME = "text/plain;charset=utf-8";
+
+/** Build one export's file, with SayMore's default file name. `flex` is required for `flexInterlinear`. */
+export function buildExport(
+  id: ExportFormatId,
+  segments: readonly AnnotationSegment[],
+  ctx: ExportContext,
+  flex?: Pick<FlexTextOptions, "transcriptionWs" | "freeTranslationWs">,
+): ExportFile {
+  const plain = (name: string, text: string, mimeType = TEXT_MIME): ExportFile => ({
+    fileName: name,
+    text,
+    mimeType,
+    bom: false,
+  });
+  switch (id) {
+    case "audacityFreeTranslation":
+      return plain(
+        fileName(ctx, "audacity_freeTranslation", ".txt"),
+        exportAudacityLabels(segments, "freeTranslation"),
+      );
+    case "audacityTranscription":
+      return plain(
+        fileName(ctx, "audacity_transcription", ".txt"),
+        exportAudacityLabels(segments, "transcription"),
+      );
+    case "plainText":
+      return plain(fileName(ctx, "transcription", ".txt"), exportPlainText(segments));
+    case "srtFreeTranslation":
+      return plain(
+        fileName(ctx, "freeTranslation_subtitle", ".srt"),
+        exportSrt(segments, "freeTranslation"),
+        "application/x-subrip;charset=utf-8",
+      );
+    case "srtTranscription":
+      return plain(
+        fileName(ctx, "transcription_subtitle", ".srt"),
+        exportSrt(segments, "transcription"),
+        "application/x-subrip;charset=utf-8",
+      );
+    case "csv":
+      return plain(
+        fileName(ctx, "transcription", ".csv"),
+        exportCsv(segments),
+        "text/csv;charset=utf-8",
+      );
+    case "toolbox":
+      return plain(
+        fileName(ctx, "interlinear", ".txt"),
+        exportToolbox(segments, ctx.sessionId, ctx.mediaFileName),
+      );
+    case "flexInterlinear": {
+      if (!flex) throw new Error("FLEx export needs writing systems.");
+      return {
+        fileName: `${ctx.mediaFileName}.flextext`,
+        text: exportFlexText(segments, {
+          title: ctx.mediaFileName,
+          mediaFilePath: ctx.mediaFilePath,
+          ...flex,
+        }),
+        mimeType: "application/xml;charset=utf-8",
+        bom: FLEX_TEXT_HAS_BOM,
+      };
+    }
+  }
+}

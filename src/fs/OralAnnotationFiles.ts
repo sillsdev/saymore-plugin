@@ -143,6 +143,11 @@ export class OralAnnotationIndex {
     return this.entries.length;
   }
 
+  /** Full relative names of the recordings of one kind. */
+  namesOfKind(kind: OralAnnotationKind): string[] {
+    return this.entries.filter((e) => e.kind === kind).map((e) => e.name);
+  }
+
   /** Entries whose [start,end] matches `range` (ms-granular via canonical tokens). */
   getFilesForRange(range: TimeRange): OralFileEntry[] {
     const startTok = csFloatToString(range.start);

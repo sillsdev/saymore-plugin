@@ -13,7 +13,9 @@ import { defineConfig, devices } from "@playwright/test";
  * include glob (`**\/*.{test,spec}.*`) does not sweep them into `vp test` —
  * verified empirically; see e2e/README.md.
  */
-const PORT = 5183;
+// E2E_PORT lets several checkouts of this repo run the suite at once without
+// one checkout's tests landing on another checkout's dev server.
+const PORT = Number(process.env.E2E_PORT ?? 5183);
 
 export default defineConfig({
   testDir: "e2e",
@@ -39,7 +41,9 @@ export default defineConfig({
   webServer: {
     command: `vp dev --port ${PORT} --strictPort`,
     port: PORT,
-    reuseExistingServer: true,
+    // A dev server that is already running may be serving older code (or
+    // another checkout's code), so the suite always starts its own.
+    reuseExistingServer: false,
     timeout: 60_000,
   },
 });

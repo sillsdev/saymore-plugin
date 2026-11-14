@@ -30,4 +30,4 @@ vp check      # format, lint, type-check
 
 ## Building the packages
 
-`pnpm run package` builds both files (`package:win` or `package:mac` for one). Each is the built plugin plus ffmpeg for that platform, with the manifest's `platforms` and `binaries` filled in, `FFMPEG-LICENSE.txt` and `THIRD-PARTY.txt`. The ffmpeg binaries come from the `ffmpeg-ffprobe-static` dev dependency's release (a GPLv3 build); ffprobe is not included. On a machine without `lipo` the Mac package carries one binary per architecture instead of a universal one.
+`pnpm run package` builds both files (`package:win` or `package:mac` for one). Each is the built plugin plus ffmpeg for that platform, with the manifest's `platforms` and `binaries` filled in, FFmpeg's license files (`FFMPEG-LICENSE.md` and `COPYING.GPLv3`, kept in `licenses/ffmpeg/`) and `THIRD-PARTY.txt`. The ffmpeg binaries come from the `ffmpeg-ffprobe-static` dev dependency's release (a GPLv3 build); ffprobe is not included. On a machine without `lipo` the Mac package carries one binary per architecture instead of a universal one.

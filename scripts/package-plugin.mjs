@@ -96,8 +96,8 @@ This package includes ffmpeg, in the bin/ folder, so the plugin can convert audi
   Build:    static GPLv3 build (configured with --enable-gpl --enable-version3), from the
             ffmpeg-ffprobe-static project, release ${releaseTag}:
             https://github.com/descriptinc/ffmpeg-ffprobe-static/releases/tag/${releaseTag}
-  License:  GNU General Public License version 3. The FFmpeg license text is in
-            FFMPEG-LICENSE.txt in this package.
+  License:  GNU General Public License version 3. FFMPEG-LICENSE.md is FFmpeg's own
+            account of its licensing, and COPYING.GPLv3 is the full license text.
   Source:   FFmpeg source code: https://ffmpeg.org/download.html (the version above is the
             release tag n6.1.2). The build scripts and the origin of each binary:
             https://github.com/descriptinc/ffmpeg-ffprobe-static
@@ -105,14 +105,6 @@ This package includes ffmpeg, in the bin/ folder, so the plugin can convert audi
 ffmpeg runs as a separate program. The plugin's own code is MIT licensed (see the plugin's
 repository, https://github.com/sillsdev/saymore-plugin).
 `;
-}
-
-function licenseText() {
-  for (const name of ["ffmpeg.exe.LICENSE", "ffmpeg.LICENSE"]) {
-    const p = join(ffmpegPackageDir, name);
-    if (existsSync(p)) return readFileSync(p);
-  }
-  throw new Error(`No ffmpeg license file in ${ffmpegPackageDir}`);
 }
 
 /** Stage dist/ plus the platform's binaries; returns the staging dir and the package definition. */
@@ -153,7 +145,12 @@ async function stage(target) {
 
   const sourceManifest = readFileSync(join(repoRoot, "public", "plugin.json5"), "utf8");
   writeFileSync(join(stageDir, "plugin.json5"), manifestForPackage(sourceManifest, pkg));
-  writeFileSync(join(stageDir, "FFMPEG-LICENSE.txt"), licenseText());
+  // FFmpeg's license files from its n6.1.2 tag, kept in this repo: the release that the binaries
+  // come from has a license file for Windows and Linux only, and that file points to
+  // COPYING.GPLv3 without containing it.
+  const licenses = join(repoRoot, "licenses", "ffmpeg");
+  copyFileSync(join(licenses, "LICENSE.md"), join(stageDir, "FFMPEG-LICENSE.md"));
+  copyFileSync(join(licenses, "COPYING.GPLv3"), join(stageDir, "COPYING.GPLv3"));
   const versionLine = versionBinary
     ? ffmpegVersionLine(versionBinary)
     : `FFmpeg n6.1.2 (build from ffmpeg-ffprobe-static ${releaseTag})`;

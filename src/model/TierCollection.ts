@@ -56,6 +56,13 @@ export class TierCollection {
     }));
   }
 
+  /** A string that changes whenever any segment's range or text changes. */
+  stateKey(): string {
+    return JSON.stringify(
+      this.segments.map((s) => [s.range.start, s.range.end, s.transcription, s.freeTranslation]),
+    );
+  }
+
   replaceAll(segments: readonly AnnotationSegment[]): void {
     this.segments = segments.map((s) => ({
       range: s.range,

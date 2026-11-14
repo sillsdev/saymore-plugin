@@ -9,6 +9,7 @@ import { SpyPlaybackEngine } from "../../audio/PlaybackEngine";
 import { SpyRecorder } from "../../audio/recording/Recorder";
 import { AnnotationDocumentStore } from "../AnnotationDocumentStore";
 import { buildAutoSegmentedEafXml } from "../../audio/autoSegmentToEaf";
+import { annotationsEafName } from "../../fs/SessionFolder";
 import { RecordingFileStore } from "./RecordingFileStore";
 import { RecorderViewModel } from "./RecorderViewModel";
 
@@ -35,6 +36,8 @@ function samplesOfMs(ms: number, sampleRate = 48000): Float32Array {
 async function makeVm(opts?: {
   seedCareful?: Array<[number, number]>;
   ignored?: number[];
+  /** The media length the document starts with (lameta opens the recorder before decoding: 0). */
+  durationSec?: number;
 }): Promise<{
   vm: RecorderViewModel;
   adapter: InMemoryAdapter;
@@ -56,7 +59,7 @@ async function makeVm(opts?: {
     SEGMENTS.map(([, end]) => end),
   );
   const document = new AnnotationDocumentStore();
-  document.init(MEDIA, DURATION, eaf);
+  document.init(MEDIA, opts?.durationSec ?? DURATION, eaf);
   for (const i of opts?.ignored ?? []) document.tiers.setIgnored(i, true);
 
   const oralIndex = await OralAnnotationIndex.build(adapter, MEDIA);
@@ -115,6 +118,35 @@ describe("RecorderViewModel — current segment", () => {
     expect(vm.currentIndex).toBe("new");
     // not fully segmented (remainder to 10s) => still Listen, not Done
     expect(vm.mode).toBe("Listen");
+  });
+
+  it("leaves Done once the media length arrives and shows unsegmented audio", async () => {
+    // lameta builds the recorder before the media is decoded, so the length starts at 0.
+    const { vm, document } = await makeVm({
+      durationSec: 0,
+      seedCareful: [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+      ],
+    });
+    expect(vm.mode).toBe("Done");
+    document.durationSec = DURATION;
+    expect(vm.currentIndex).toBe("new");
+    expect(vm.mode).toBe("Listen");
+  });
+
+  it("stays Done when the arriving media length ends at the last segment", async () => {
+    const { vm, document } = await makeVm({
+      durationSec: 0,
+      seedCareful: [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+      ],
+    });
+    document.durationSec = 3;
+    expect(vm.mode).toBe("Done");
   });
 });
 
@@ -450,5 +482,112 @@ describe("RecorderViewModel — done mode", () => {
     });
     expect(vm.currentIndex).toBe("new");
     expect(vm.mode).toBe("Done");
+  });
+});
+
+describe("RecorderViewModel — clip names still match their segments after an eaf reload", () => {
+  /** Load the saved eaf into a fresh document, index and store, as a reopen does. */
+  async function reopen(adapter: InMemoryAdapter): Promise<{
+    document: AnnotationDocumentStore;
+    oralIndex: OralAnnotationIndex;
+    store: RecordingFileStore;
+  }> {
+    const document = new AnnotationDocumentStore();
+    document.init(MEDIA, DURATION, await adapter.readText(annotationsEafName(MEDIA)));
+    const oralIndex = await OralAnnotationIndex.build(adapter, MEDIA);
+    const store = await RecordingFileStore.build(adapter, oralIndex, MEDIA);
+    return { document, oralIndex, store };
+  }
+
+  async function recordRemainderAt(positionSec: number) {
+    const ctx = await makeVm({
+      seedCareful: [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+      ],
+    });
+    const { vm, playback, recorder, store, document, adapter } = ctx;
+    expect(vm.currentIndex).toBe("new");
+    vm.listenDown();
+    playback.positionSec = positionSec; // an unrounded playhead position
+    vm.listenUp();
+    recorder.setNextRecording(samplesOfMs(1000));
+    vm.speakDown();
+    await vm.speakUp();
+    await store.whenSettled();
+    await document.save(adapter);
+    return ctx;
+  }
+
+  it("a new segment recorded at an unrounded boundary is named from the whole-ms boundary", async () => {
+    const { adapter, document, vm } = await recordRemainderAt(4.0060531);
+    try {
+      expect(document.tiers.segments.map((s) => s.range.end)).toEqual([1, 2, 3, 4.006]);
+      expect(await adapter.exists(`${FOLDER}/3_to_4.006_Careful.wav`)).toBe(true);
+      expect(vm.newSegmentEndSec).toBe(4.006);
+    } finally {
+      vm.dispose();
+    }
+  });
+
+  it("after save + reload, the index, the store and readSegmentWav all find the clip", async () => {
+    const { adapter, vm } = await recordRemainderAt(4.0060531);
+    try {
+      const reopened = await reopen(adapter);
+      const last = reopened.document.tiers.segments[3];
+      expect(last.range.end).toBe(4.006);
+      expect(reopened.oralIndex.hasAnyForRange(last.range)).toBe(true);
+      expect(reopened.store.has(last.range, "Careful")).toBe(true);
+      expect(await reopened.oralIndex.readSegmentWav(last.range, "Careful")).toEqual(
+        idEncoder(samplesOfMs(1000)),
+      );
+    } finally {
+      vm.dispose();
+    }
+  });
+
+  it("holds for many unrounded positions, including ones that round up across a ms", async () => {
+    for (const pos of [3.5004999, 3.5005, 4.9999999, 6.123456, 7.0009]) {
+      const { adapter, vm } = await recordRemainderAt(pos);
+      try {
+        const reopened = await reopen(adapter);
+        const last = reopened.document.tiers.segments[3];
+        expect(reopened.oralIndex.hasAnyForRange(last.range)).toBe(true);
+        expect(reopened.store.has(last.range, "Careful")).toBe(true);
+      } finally {
+        vm.dispose();
+      }
+    }
+  });
+
+  it("dragging the virtual boundary to an unrounded position records at whole ms", async () => {
+    const { vm, playback, recorder, store, document, adapter } = await makeVm({
+      seedCareful: [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+      ],
+    });
+    try {
+      vm.selectSegment("new");
+      vm.dragNewBoundaryTo(5.4321987);
+      expect(vm.newSegmentEndSec).toBe(5.432);
+      vm.listenDown();
+      playback.positionSec = vm.newSegmentEndSec;
+      vm.listenUp();
+      recorder.setNextRecording(samplesOfMs(1000));
+      vm.speakDown();
+      await vm.speakUp();
+      await store.whenSettled();
+      await document.save(adapter);
+
+      const reopened = await reopen(adapter);
+      const last = reopened.document.tiers.segments[3];
+      expect(last.range).toEqual({ start: 3, end: 5.432 });
+      expect(reopened.oralIndex.hasAnyForRange(last.range)).toBe(true);
+    } finally {
+      vm.dispose();
+    }
   });
 });

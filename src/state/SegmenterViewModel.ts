@@ -1,6 +1,6 @@
-import { makeAutoObservable } from "mobx";
+import { makeAutoObservable, runInAction } from "mobx";
 import type { AnnotationSegment } from "../model/AnnotationSegment";
-import { makeTimeRange, type TimeRange } from "../model/TimeRange";
+import { makeTimeRange, roundToWholeMs, type TimeRange } from "../model/TimeRange";
 import { BoundaryResult } from "../model/BoundaryRules";
 import {
   MIN_ZOOM_PERCENT,
@@ -50,7 +50,7 @@ export interface SegmenterDeps {
 export class SegmenterViewModel {
   readonly document: AnnotationDocumentStore;
   readonly playback: PlaybackEngine;
-  readonly undoStack = new UndoStack();
+  readonly undoStack = new UndoStack(() => this.document.tiers.stateKey());
   private readonly adapter?: FileSystemAdapter;
   private readonly oralIndex?: OralAnnotationIndex;
   /** Keeps `_Annotations/` WAVs consistent with the model on every flush. */
@@ -127,12 +127,39 @@ export class SegmenterViewModel {
    */
   private async flush(): Promise<void> {
     const adapter = this.adapter;
-    if (!adapter) return;
+    if (!adapter || this.document.holdWrites) return;
     if (this.reconciler) {
       await this.reconciler.reconcile(this.undoStack.collectFileOps());
       await this.oralIndex?.refresh();
     }
     await this.document.save(adapter);
+  }
+
+  /** Save now what the debounce has not yet written (after an external-change conflict is resolved). */
+  async flushPending(): Promise<void> {
+    if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
+    this.autoSaveTimer = undefined;
+    await this.flush();
+  }
+
+  /**
+   * Adopt the `.eaf` as another program changed it: drop pending edits, forget undo
+   * history (its snapshots describe the old file), rebase the oral-file bookkeeping on
+   * disk as it is now, and load the new segments. The selected boundary stays when it
+   * still exists.
+   */
+  async reloadFromDisk(eafXml: string): Promise<void> {
+    if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
+    this.autoSaveTimer = undefined;
+    await this.oralIndex?.refresh();
+    runInAction(() => {
+      this.undoStack.clear();
+      this.reconciler?.commitBaseline();
+      this.oralNames.clear();
+      this.document.reloadFrom(eafXml);
+      if (this.selectedBoundaryIndex >= this.document.segments.length) this.clearSelection();
+      this.hoveredSegmentIndex = NONE;
+    });
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -269,7 +296,7 @@ export class SegmenterViewModel {
 
   /** Enter: add a boundary at the playhead (while listening) or cursor. */
   addBoundaryAtCursor(): BoundaryResult {
-    const at = this.editPositionSec;
+    const at = roundToWholeMs(this.editPositionSec);
     // Splitting a segment that owns oral recordings invalidates them.
     const enclosing = this.document.tiers.indexOfSegmentAt(at);
     const fileOps = enclosing >= 0 ? this.deleteOralFor(this.segments[enclosing].range) : [];
@@ -303,9 +330,11 @@ export class SegmenterViewModel {
     return this.moveBoundary(k, newEndSec, true);
   }
 
-  private moveBoundary(k: number, newEndSec: number, replay: boolean): BoundaryResult {
+  private moveBoundary(k: number, newEndPositionSec: number, replay: boolean): BoundaryResult {
     this.clearReplayTimer();
     this.playback.stop();
+    // The WAV rename targets must be named from the boundary the model will hold.
+    const newEndSec = roundToWholeMs(newEndPositionSec);
     const fileOps = this.computeMoveFileOps(k, newEndSec);
     const result = this.runEdit(t("segmenter.cmd.moveBoundary", "Move boundary"), fileOps, () =>
       this.document.tiers.moveBoundary(k, newEndSec),
@@ -322,7 +351,7 @@ export class SegmenterViewModel {
     if (k < 0) return BoundaryResult.SegmentNotFound;
     this.clearReplayTimer();
     this.playback.stop();
-    const newEnd = this.segments[k].range.end + deltaMs / 1000;
+    const newEnd = roundToWholeMs(this.segments[k].range.end + deltaMs / 1000);
     const fileOps = this.computeMoveFileOps(k, newEnd);
     const result = this.runEdit(t("segmenter.cmd.nudge", "Nudge boundary"), fileOps, () =>
       this.document.tiers.nudgeBoundary(k, deltaMs, this.durationSec),

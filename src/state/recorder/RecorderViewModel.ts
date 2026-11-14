@@ -1,4 +1,4 @@
-import { makeAutoObservable, runInAction } from "mobx";
+import { makeAutoObservable, reaction, runInAction } from "mobx";
 import { MediaElementPlaybackEngine, type PlaybackEngine } from "../../audio/PlaybackEngine";
 import type { RecorderService, RecordingDeviceInfo } from "../../audio/recording/Recorder";
 import { encodeWavPcm16Mono } from "../../audio/wavWriter";
@@ -12,7 +12,12 @@ import {
   RECORDER_TOO_SHORT_WARNING_MS,
   RECORDER_TOO_SHORT_WARNING_TEXT,
 } from "../../model/SayMoreConstants";
-import { makeTimeRange, rangeLengthMs, type TimeRange } from "../../model/TimeRange";
+import {
+  makeTimeRange,
+  rangeLengthMs,
+  roundToWholeMs,
+  type TimeRange,
+} from "../../model/TimeRange";
 import { t } from "../../l10n";
 import { UndoStack } from "../UndoStack";
 import type { AnnotationDocumentStore } from "../AnnotationDocumentStore";
@@ -70,12 +75,13 @@ export class RecorderViewModel {
   readonly store: RecordingFileStore;
   /** Playback engine for recorded clips (separate from the source `playback`). */
   readonly annotationPlayback: PlaybackEngine;
-  readonly undoStack = new UndoStack();
+  readonly undoStack = new UndoStack(() => this.document.tiers.stateKey());
   private readonly adapter?: FileSystemAdapter;
   private readonly encodeWav: WavEncoder;
   private readonly clipUrlFactory?: (bytes: Uint8Array) => string;
   private readonly revokeClipUrl?: (url: string) => void;
   private readonly disposeError: () => void;
+  private readonly disposeDurationReaction: () => void;
   private currentClipUrl: string | undefined = undefined;
 
   mode: SpaceBarMode = "Listen";
@@ -118,6 +124,7 @@ export class RecorderViewModel {
       | "clipUrlFactory"
       | "revokeClipUrl"
       | "disposeError"
+      | "disposeDurationReaction"
       | "currentClipUrl"
       | "segmentBeingRecorded"
       | "reRecording"
@@ -142,8 +149,23 @@ export class RecorderViewModel {
       warningTimer: false,
       autoSaveTimer: false,
       deviceCheckTimer: false,
+      disposeDurationReaction: false,
     });
     this.initSelection();
+    // In lameta the recorder opens before the source media is decoded, so durationSec is 0
+    // here and every session looks fully segmented. Re-judge Done once the real length lands.
+    this.disposeDurationReaction = reaction(
+      () => this.document.durationSec,
+      () => this.onDurationChanged(),
+    );
+  }
+
+  /** Done or Listen on the new-segment slot depends on the media length (see constructor). */
+  private onDurationChanged(): void {
+    if (this.isRecording || this.isListening || this.currentIndex !== "new") return;
+    if (this.mode !== "Done" && this.mode !== "Listen") return;
+    this.newSegmentEndSec = Math.max(this.newSegmentEndSec, this.endOfLastSegment);
+    this.mode = this.isFullyAnnotated ? "Done" : "Listen";
   }
 
   /**
@@ -481,13 +503,16 @@ export class RecorderViewModel {
     this.setNewSegmentEnd(sec, true);
   }
 
-  /** Clamp+set the virtual boundary: >= end-of-last (+min when enforced), <= media end. */
+  /**
+   * Clamp+set the virtual boundary: >= end-of-last (+min when enforced), <= media
+   * end, rounded to the whole millisecond that the inserted boundary will hold.
+   */
   private setNewSegmentEnd(sec: number, enforceMin: boolean): void {
     const dur = this.document.durationSec;
     const lo = this.endOfLastSegment + (enforceMin ? MIN_SEC : 0);
     let v = Math.min(sec, dur);
     if (v < lo) v = Math.min(lo, dur);
-    this.newSegmentEndSec = v;
+    this.newSegmentEndSec = roundToWholeMs(v);
   }
 
   // ── Undo / redo ──────────────────────────────────────────────────────────────
@@ -536,6 +561,7 @@ export class RecorderViewModel {
 
   dispose(): void {
     this.disposeError();
+    this.disposeDurationReaction();
     this.stopDeviceCheck();
     if (this.warningTimer) clearTimeout(this.warningTimer);
     if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
@@ -601,7 +627,6 @@ export class RecorderViewModel {
    * boundary and records atomically). The eaf rides the debounced autosave.
    */
   private commitNewSegmentRecording(bytes: Uint8Array): void {
-    const range = makeTimeRange(this.endOfLastSegment, this.newSegmentEndSec);
     const before = this.document.tiers.snapshot();
     const result = this.document.tiers.insertBoundary(this.newSegmentEndSec);
     if (result !== BoundaryResult.Success) {
@@ -609,6 +634,9 @@ export class RecorderViewModel {
       return;
     }
     const after = this.document.tiers.snapshot();
+    // Name the clip from the segment as the model holds it (whole-ms boundaries,
+    // the values that the eaf reloads to), never from the pre-insert position.
+    const range = after[after.length - 1].range;
     const mutation = this.store.writeRecording(range, this.kind, bytes);
     this.undoStack.do({
       label: t("recorder.cmd.recordNew", "Record new segment"),

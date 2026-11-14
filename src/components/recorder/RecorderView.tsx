@@ -20,6 +20,7 @@ import { PeakMeter } from "./PeakMeter";
 import { sourceCursorXPx } from "./playbackCursor";
 import { cellOpacity, opacityMaskAlpha } from "./segmentOpacity";
 import { SourceSegmentControls } from "./SourceSegmentControls";
+import { scrollLeftToShow } from "./scrollToCurrent";
 import { recorderKeyAction, type RecorderAction } from "./recorderKeys";
 import { NEW_BOUNDARY_NUDGE_MS, PIXELS_PER_SECOND_AT_100 } from "../../model/SayMoreConstants";
 import {
@@ -73,6 +74,35 @@ export const RecorderView = observer(function RecorderView(props: { store: Proje
       unsubZoom();
     };
   }, [store.envelope, vm]);
+
+  // Keep the current segment (or the new-segment slot) on screen, as SayMore does: a long
+  // first segment would otherwise fill the whole view and hide every boundary after it.
+  // Runs when the current segment changes and once the waveform has its scale.
+  const focusStart = vm?.currentRange?.start;
+  const focusEnd = vm?.currentRange?.end;
+  useEffect(() => {
+    if (focusStart === undefined || focusEnd === undefined || !store.envelope) return;
+    let frame = 0;
+    let tries = 0;
+    const attempt = (): void => {
+      const api = surfaceRef.current;
+      const viewport = api?.getViewport();
+      const width = api?.getScrollerRect()?.width ?? 0;
+      if (!api || !viewport || viewport.pxPerSec <= 0 || width <= 0) {
+        if (++tries < 60) frame = requestAnimationFrame(attempt);
+        return;
+      }
+      const target = scrollLeftToShow(
+        viewport.secondsToPx(focusStart),
+        viewport.secondsToPx(focusEnd),
+        viewport.scrollLeft,
+        width,
+      );
+      if (target !== undefined) api.scrollToSeconds(viewport.pxToSeconds(target));
+    };
+    frame = requestAnimationFrame(attempt);
+    return () => cancelAnimationFrame(frame);
+  }, [store.envelope, focusStart, focusEnd]);
 
   // Listened on `window` (not React's onKeyDown) so Space/Esc/etc. still fire
   // even if focus has landed on a child control (e.g. after clicking a cell

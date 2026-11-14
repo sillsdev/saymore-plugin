@@ -52,6 +52,35 @@ describe("GridFonts", () => {
     expect(fonts.font("freeTranslation")).toEqual({ family: "Andika", sizePt: 11, italic: true });
   });
 
+  it("a font chosen while the settings are still being read merges into them and stays", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const { storage, current } = memoryStorage({
+      version: 1,
+      freeTranslationFont: { family: "Andika", sizePt: 11 },
+    });
+    const slow: SettingsStorage = {
+      read: async () => {
+        await gate;
+        return storage.read();
+      },
+      write: storage.write,
+    };
+    const fonts = new GridFonts(memoryStorage().storage);
+    const reading = fonts.useStorage(slow);
+    const choosing = fonts.setFont("transcription", { family: "Charis SIL", sizePt: 14 });
+    release();
+    await reading;
+    await choosing;
+    expect(fonts.font("transcription")).toEqual({ family: "Charis SIL", sizePt: 14 });
+    expect(fonts.font("freeTranslation")).toEqual({ family: "Andika", sizePt: 11 });
+    expect(current()).toEqual({
+      version: 1,
+      transcriptionFont: { family: "Charis SIL", sizePt: 14 },
+      freeTranslationFont: { family: "Andika", sizePt: 11 },
+    });
+  });
+
   it("writes a small versioned value and keeps keys it does not know", async () => {
     const { storage, current } = memoryStorage({ version: 1, other: { x: 1 } });
     const fonts = new GridFonts(storage);

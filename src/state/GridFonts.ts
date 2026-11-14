@@ -91,13 +91,18 @@ export class GridFonts {
   private stored: Record<string, unknown> = {};
   /** Bumped by each `useStorage`, so a slower earlier read cannot win. */
   private generation = 0;
+  /** The latest read that `useStorage` started. A font change waits for it, so the change merges
+   * into the settings as read and the read cannot then put back the font it replaced. */
+  private reading: Promise<void> = Promise.resolve();
 
   constructor(storage: SettingsStorage) {
     this.storage = storage;
-    makeAutoObservable<GridFonts, "storage" | "stored" | "generation">(this, {
+    makeAutoObservable<GridFonts, "storage" | "stored" | "generation" | "reading" | "read">(this, {
       storage: false,
       stored: false,
       generation: false,
+      reading: false,
+      read: false,
     });
   }
 
@@ -106,9 +111,13 @@ export class GridFonts {
   }
 
   /** Read the fonts from `storage` and keep it for later writes. */
-  async useStorage(storage: SettingsStorage): Promise<void> {
+  useStorage(storage: SettingsStorage): Promise<void> {
     this.storage = storage;
-    const generation = ++this.generation;
+    this.reading = this.read(storage, ++this.generation);
+    return this.reading;
+  }
+
+  private async read(storage: SettingsStorage, generation: number): Promise<void> {
     let value: unknown = null;
     try {
       value = await storage.read();
@@ -126,9 +135,12 @@ export class GridFonts {
 
   /** Set a column's font (undefined for the default) and store it with the project. */
   async setFont(column: GridColumn, font: GridFont | undefined): Promise<void> {
+    await this.reading;
     const parsed = font ? parseGridFont(font) : undefined;
-    if (column === "transcription") this.transcription = parsed;
-    else this.freeTranslation = parsed;
+    runInAction(() => {
+      if (column === "transcription") this.transcription = parsed;
+      else this.freeTranslation = parsed;
+    });
     const storedVersion = this.stored.version;
     if (typeof storedVersion === "number" && storedVersion > PROJECT_SETTINGS_VERSION) return;
     const next: Record<string, unknown> = { ...this.stored, version: PROJECT_SETTINGS_VERSION };

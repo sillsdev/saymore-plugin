@@ -155,6 +155,28 @@ describe("TranscriptionGrid: SayMore's first column", () => {
     expect(within(screen.getByTestId("grid-row-2")).getByTitle("Play this segment")).toBeTruthy();
   });
 
+  it("entering a row through its first cell autoplays it, and F2 there reaches the grid", async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, playback } = makeStore(3);
+      render(<TranscriptionGrid store={store} />);
+      const first = screen.getByTestId("segment-cell-2");
+      act(() => {
+        first.focus();
+        fireEvent.click(first);
+      });
+      expect(globalThis.document.activeElement).toBe(first);
+      await act(() => vi.advanceTimersByTimeAsync(AUTOPLAY_DELAY_MS));
+      expect(playback.calls.filter((c) => c.kind === "play").map((c) => c.range)).toEqual([
+        makeTimeRange(2, 3),
+      ]);
+      fireEvent.keyDown(first, { key: "F2" });
+      expect(playback.isPlaying).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows the segment's time range as the tooltip, with how to play on the current row", () => {
     const { store } = makeStore(3);
     render(<TranscriptionGrid store={store} />);

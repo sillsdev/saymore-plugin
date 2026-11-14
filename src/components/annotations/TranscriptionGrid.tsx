@@ -339,6 +339,10 @@ const SegmentCell = observer(function SegmentCell(props: {
     <div
       data-testid={`segment-cell-${row}`}
       title={segmentTooltip(range, current)}
+      // Entering a row through this cell plays it, as entering a text cell does (SayMore's
+      // OnCellEnter schedules playback for column 0 too). Focus keeps F2 inside the grid.
+      tabIndex={-1}
+      onClick={() => vm.enterCell(row, vm.currentColumn)}
       css={[
         dataCellCss,
         css`

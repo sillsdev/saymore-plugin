@@ -10,7 +10,10 @@ A SayMore-compatible audio annotation — ELAN-compatible written and oral trans
 <img width="689" height="438" alt="image" src="https://github.com/user-attachments/assets/00c2fb59-29cf-4ccb-86c7-033d536916c3" />
 
 ## Installing
-1) Get the latest release on the github page.
+1) Get the latest release on the github page and download the file for your computer:
+   - Windows: `saymore-audio-win-x64.lmplug`
+   - Mac (Apple Silicon and Intel): `saymore-audio-mac.lmplug`
+   Each file includes its own copy of ffmpeg, so nothing else needs installing.
 2) In lameta, choose `File: Plugins`:
 <img width="872" height="385" alt="image" src="https://github.com/user-attachments/assets/40518cc6-0b7f-4959-9bec-709fa8f3b060" />
 
@@ -24,3 +27,7 @@ vp build --watch # keep `dist/` up to date. Use with lameta's Developer mode for
 vp test    
 vp check      # format, lint, type-check
 ```
+
+## Building the packages
+
+`pnpm run package` builds both files (`package:win` or `package:mac` for one). Each is the built plugin plus ffmpeg for that platform, with the manifest's `platforms` and `binaries` filled in, `FFMPEG-LICENSE.txt` and `THIRD-PARTY.txt`. The ffmpeg binaries come from the `ffmpeg-ffprobe-static` dev dependency's release (a GPLv3 build); ffprobe is not included. On a machine without `lipo` the Mac package carries one binary per architecture instead of a universal one.

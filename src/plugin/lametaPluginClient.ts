@@ -1,4 +1,4 @@
-// VENDORED from lameta: src/plugins/client/lametaPluginClient.ts. Local changes: import path, no `any`, `lameta:ready` retried every 150ms.
+// VENDORED from lameta: src/plugins/client/lametaPluginClient.ts. Local changes: import path, no `any`.
 // lameta plugin client kit (canonical TypeScript source).
 //
 // This is the ~small, dependency-free helper a plugin runs INSIDE its iframe to talk to
@@ -73,6 +73,17 @@ export type TabProviderHandler = (
   query: TabProviderQuery,
 ) => TabDescriptor[] | Promise<TabDescriptor[]>;
 
+/** How often `lameta:ready` is re-posted until the host answers with `lameta:init`. */
+export const READY_RESEND_MS = 150;
+
+// The host accepts an ArrayBuffer; a typed array or DataView is cut down to exactly its bytes.
+function toArrayBuffer(bytes: ArrayBuffer | ArrayBufferView): ArrayBuffer {
+  if (bytes instanceof ArrayBuffer) return bytes;
+  const copy = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(copy).set(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+  return copy;
+}
+
 // Shared plumbing: a pending-response map + a `request()` and the typed `api` built on it.
 function makeApiPlumbing() {
   let nextId = 1;
@@ -125,7 +136,16 @@ function makeApiPlumbing() {
     readSidecar: (name?: string) => request("readSidecar", [name]),
     writeSidecar: (contents: string, name?: string) => request("writeSidecar", [contents, name]),
     listSidecars: () => request("listSidecars", []),
-    selectFile: (relPath: string) => request("selectFile", [relPath]),
+    selectFile: (relPath: string, options?: { tabId?: string }) =>
+      request("selectFile", options ? [relPath, options] : [relPath]),
+    // The bytes are copied, not transferred, so the plugin's buffer stays usable after a save.
+    saveFile: (
+      suggestedName: string,
+      bytes: ArrayBuffer | ArrayBufferView,
+      options?: { filters?: { name: string; extensions: string[] }[]; rememberFolderKey?: string },
+    ) => request("saveFile", [suggestedName, toArrayBuffer(bytes), options]),
+    getProjectSettings: () => request("getProjectSettings", []),
+    setProjectSettings: (value: unknown) => request("setProjectSettings", [value]),
     companions: {
       list: (subdir?: string) => request("companions.list", [subdir]),
       exists: (relPath: string) => request("companions.exists", [relPath]),
@@ -188,8 +208,6 @@ export function connectToLameta(timeoutMs = 10000): Promise<LametaConnection> {
     const { api, handleResponse, handleProgress } = makeApiPlumbing();
     let connected = false;
 
-    // Re-announce readiness every 150ms until init arrives: a one-shot `lameta:ready` can be
-    // posted before the host's listener exists and be lost.
     let readyTimer: ReturnType<typeof setInterval> | null = null;
     let initTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
       if (!connected) {
@@ -246,10 +264,11 @@ export function connectToLameta(timeoutMs = 10000): Promise<LametaConnection> {
     }
 
     window.addEventListener("message", onMessage);
-    // Announce we're ready; the host replies with lameta:init (and also re-sends it on our load,
-    // so a missed early ready self-heals).
-    window.parent.postMessage({ type: "lameta:ready" }, "*");
-    readyTimer = setInterval(() => window.parent.postMessage({ type: "lameta:ready" }, "*"), 150);
+    // Announce we're ready, and keep announcing until lameta:init arrives: the host's listener
+    // may not exist yet when the first `ready` is posted.
+    const announce = () => window.parent.postMessage({ type: "lameta:ready" }, "*");
+    announce();
+    readyTimer = setInterval(announce, READY_RESEND_MS);
   });
 }
 

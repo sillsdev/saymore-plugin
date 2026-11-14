@@ -3,22 +3,28 @@ import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import Button from "@mui/material/Button";
+import Divider from "@mui/material/Divider";
 import IconButton from "@mui/material/IconButton";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import { t } from "../../l10n";
 import type { ProjectStore } from "../../state/ProjectStore";
 import { gridPreferences } from "../../state/GridPreferences";
+import { gridFonts, type GridFont } from "../../state/GridFonts";
 import { GridViewModel, type GridColumn } from "../../state/GridViewModel";
+import type { TimeRange } from "../../model/TimeRange";
 import { LAMETA_UI_FONT } from "../../lametaTheme";
+import { DEFAULT_ROW_HEIGHT, gridFontStyle, gridRowHeight } from "./gridFontStyle";
+import { FontDialog } from "./FontDialog";
+import { playbackFillFraction, segmentTooltip } from "./segmentCell";
 
-/** Every row has this height, so the rows on screen follow from the scroll offset. */
-export const GRID_ROW_HEIGHT = 34;
+/** The row height with the default fonts; larger column fonts make every row taller. */
+export const GRID_ROW_HEIGHT = DEFAULT_ROW_HEIGHT;
 /** Rows rendered above and below the ones on screen. */
 const OVERSCAN_ROWS = 8;
 /** Viewport height assumed until the scroll container has been measured. */
 const UNMEASURED_VIEWPORT_PX = 900;
-const COLUMNS = "40px 44px minmax(0, 1fr) minmax(0, 1fr)";
+const COLUMNS = "84px minmax(0, 1fr) minmax(0, 1fr)";
 
 /**
  * The SayMore transcription grid (`TextAnnotationEditorGrid`): one row per
@@ -26,8 +32,8 @@ const COLUMNS = "40px 44px minmax(0, 1fr) minmax(0, 1fr)";
  * straight back to the eaf. Behaviour (autoplay, keyboard movement, playback
  * options, ignored rows) lives in {@link GridViewModel}; this view renders it.
  *
- * Only the rows near the scroll position are in the DOM: every row is
- * {@link GRID_ROW_HEIGHT} tall and absolutely positioned, so a session with
+ * Only the rows near the scroll position are in the DOM: every row has the same
+ * height (see {@link gridRowHeight}) and is absolutely positioned, so a session with
  * thousands of segments costs about the same as one with thirty. The header is
  * sticky inside the same scroll container, so its columns line up with the rows'.
  */
@@ -57,6 +63,7 @@ const GridBody = observer(function GridBody(props: { store: ProjectStore; vm: Gr
   const segmentCount = doc.segments.length;
   // `rev` in the cell keys makes external changes (reload/undo) reset the inputs.
   const rev = doc.version;
+  const rowHeight = gridRowHeight([gridFonts.transcription, gridFonts.freeTranslation]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -97,24 +104,24 @@ const GridBody = observer(function GridBody(props: { store: ProjectStore; vm: Gr
     if (el) {
       const header = headerRef.current?.offsetHeight ?? 0;
       const visible = (el.clientHeight || UNMEASURED_VIEWPORT_PX) - header;
-      const top = request.row * GRID_ROW_HEIGHT;
+      const top = request.row * rowHeight;
       let next = el.scrollTop;
       if (top < next) next = top;
-      else if (top + GRID_ROW_HEIGHT > next + visible) next = top + GRID_ROW_HEIGHT - visible;
+      else if (top + rowHeight > next + visible) next = top + rowHeight - visible;
       if (next !== el.scrollTop) {
         el.scrollTop = next;
         setScrollTop(next);
       }
     }
     focusPending();
-  }, [request]);
+  }, [request, rowHeight]);
   useLayoutEffect(() => focusPending());
 
   const viewport = viewportPx || UNMEASURED_VIEWPORT_PX;
-  const first = Math.max(0, Math.floor(scrollTop / GRID_ROW_HEIGHT) - OVERSCAN_ROWS);
+  const first = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN_ROWS);
   const last = Math.min(
     segmentCount - 1,
-    Math.ceil((scrollTop + viewport) / GRID_ROW_HEIGHT) + OVERSCAN_ROWS,
+    Math.ceil((scrollTop + viewport) / rowHeight) + OVERSCAN_ROWS,
   );
   const rows: number[] = [];
   for (let i = first; i <= last; i++) rows.push(i);
@@ -169,7 +176,6 @@ const GridBody = observer(function GridBody(props: { store: ProjectStore; vm: Gr
         `}
       >
         <div css={headerCellCss} />
-        <div css={headerCellCss} />
         <TranscriptionHeader vm={vm} />
         <TranslationHeader vm={vm} />
       </div>
@@ -188,7 +194,7 @@ const GridBody = observer(function GridBody(props: { store: ProjectStore; vm: Gr
           css={css`
             position: relative;
           `}
-          style={{ height: segmentCount * GRID_ROW_HEIGHT }}
+          style={{ height: segmentCount * rowHeight }}
         >
           {rows.map((i) => (
             <GridRow
@@ -197,6 +203,7 @@ const GridBody = observer(function GridBody(props: { store: ProjectStore; vm: Gr
               vm={vm}
               index={i}
               rev={rev}
+              rowHeight={rowHeight}
               onContextMenu={(x, y) => {
                 vm.selectRow(i);
                 setMenu({ row: i, x, y });
@@ -242,16 +249,18 @@ const GridRow = observer(function GridRow(props: {
   vm: GridViewModel;
   index: number;
   rev: number;
+  rowHeight: number;
   onContextMenu: (x: number, y: number) => void;
 }) {
-  const { store, vm, index: i, rev } = props;
+  const { store, vm, index: i, rev, rowHeight } = props;
   const seg = store.document?.segments[i];
   if (!seg) return null;
   const ignored = vm.isIgnored(i);
   const current = i === vm.currentRow;
   // SayMore greys ignored rows except the current one.
   const greyed = ignored && !current;
-  const playingHere = current && (vm.isPlaying || vm.isPaused);
+  const transcriptionFont = gridFontStyle(gridFonts.transcription);
+  const freeTranslationFont = gridFontStyle(gridFonts.freeTranslation);
   return (
     <div
       data-testid={`grid-row-${i}`}
@@ -263,12 +272,11 @@ const GridRow = observer(function GridRow(props: {
         e.preventDefault();
         props.onContextMenu(e.clientX, e.clientY);
       }}
-      style={{ top: i * GRID_ROW_HEIGHT }}
+      style={{ top: i * rowHeight, height: rowHeight }}
       css={css`
         position: absolute;
         left: 0;
         right: 0;
-        height: ${GRID_ROW_HEIGHT}px;
         box-sizing: border-box;
         display: grid;
         grid-template-columns: ${COLUMNS};
@@ -278,20 +286,82 @@ const GridRow = observer(function GridRow(props: {
         color: ${greyed ? "#9aa5ab" : "inherit"};
       `}
     >
-      <div css={dataCellCss}>{i + 1}</div>
-      <div
-        css={[
-          dataCellCss,
-          css`
-            justify-content: center;
-          `,
-        ]}
+      <SegmentCell store={store} vm={vm} row={i} range={seg.range} current={current} />
+      {ignored ? (
+        <>
+          <IgnoredCell vm={vm} row={i} column="transcription" fontStyle={transcriptionFont} />
+          <IgnoredCell vm={vm} row={i} column="freeTranslation" fontStyle={freeTranslationFont} />
+        </>
+      ) : (
+        <>
+          <EditableCell
+            key={`tr-${i}-${rev}`}
+            row={i}
+            column="transcription"
+            vm={vm}
+            initial={seg.transcription}
+            fontStyle={transcriptionFont}
+            placeholder={t("grid.transcriptionPlaceholder", "transcription…")}
+            onCommit={(text) => void saveCell(store, i, "transcription", text)}
+          />
+          <EditableCell
+            key={`ft-${i}-${rev}`}
+            row={i}
+            column="freeTranslation"
+            vm={vm}
+            initial={seg.freeTranslation}
+            fontStyle={freeTranslationFont}
+            placeholder={t("grid.freeTranslationPlaceholder", "free translation…")}
+            onCommit={(text) => void saveCell(store, i, "freeTranslation", text)}
+          />
+        </>
+      )}
+    </div>
+  );
+});
+
+/**
+ * A row's first cell, SayMore's `AudioWaveFormCell`: the row number, and on the
+ * current row only a play/stop button at the right and, while the row plays, a
+ * translucent fill from the left as wide as the playback position is into the
+ * segment. Its tooltip is the segment's time range.
+ */
+const SegmentCell = observer(function SegmentCell(props: {
+  store: ProjectStore;
+  vm: GridViewModel;
+  row: number;
+  range: TimeRange;
+  current: boolean;
+}) {
+  const { store, vm, row, range, current } = props;
+  const inProgress = current && (vm.isPlaying || vm.isPaused);
+  return (
+    <div
+      data-testid={`segment-cell-${row}`}
+      title={segmentTooltip(range, current)}
+      css={[
+        dataCellCss,
+        css`
+          position: relative;
+          justify-content: space-between;
+          padding-right: 3px;
+        `,
+      ]}
+    >
+      {current && <PlaybackFill vm={vm} range={range} />}
+      <span
+        css={css`
+          position: relative;
+        `}
       >
+        {row + 1}
+      </span>
+      {current && (
         <IconButton
           title={t("grid.play", "Play this segment")}
           onClick={(e) => {
             e.stopPropagation();
-            vm.togglePlayRow(i);
+            vm.togglePlayRow(row);
           }}
           disabled={!store.segmenter}
           sx={{
@@ -307,37 +377,47 @@ const GridRow = observer(function GridRow(props: {
             "&.Mui-disabled": { opacity: 0.5 },
           }}
         >
-          {playingHere ? "■" : "▶"}
+          {inProgress ? "■" : "▶"}
         </IconButton>
-      </div>
-      {ignored ? (
-        <>
-          <IgnoredCell vm={vm} row={i} column="transcription" />
-          <IgnoredCell vm={vm} row={i} column="freeTranslation" />
-        </>
-      ) : (
-        <>
-          <EditableCell
-            key={`tr-${i}-${rev}`}
-            row={i}
-            column="transcription"
-            vm={vm}
-            initial={seg.transcription}
-            placeholder={t("grid.transcriptionPlaceholder", "transcription…")}
-            onCommit={(text) => void saveCell(store, i, "transcription", text)}
-          />
-          <EditableCell
-            key={`ft-${i}-${rev}`}
-            row={i}
-            column="freeTranslation"
-            vm={vm}
-            initial={seg.freeTranslation}
-            placeholder={t("grid.freeTranslationPlaceholder", "free translation…")}
-            onCommit={(text) => void saveCell(store, i, "freeTranslation", text)}
-          />
-        </>
       )}
     </div>
+  );
+});
+
+/**
+ * The playback fill of the current row's first cell. It is its own observer so
+ * that the playback position, which changes every frame, re-renders only this.
+ */
+const PlaybackFill = observer(function PlaybackFill(props: {
+  vm: GridViewModel;
+  range: TimeRange;
+}) {
+  const { vm, range } = props;
+  const playback = vm.playback;
+  const fraction = playback
+    ? playbackFillFraction(
+        {
+          positionSec: playback.positionSec,
+          clipUrl: playback.clipUrl,
+          inProgress: vm.isPlaying || vm.isPaused,
+        },
+        range,
+      )
+    : 0;
+  if (fraction <= 0) return null;
+  return (
+    <div
+      data-testid="playback-progress"
+      style={{ width: `${fraction * 100}%` }}
+      css={css`
+        position: absolute;
+        left: 0;
+        top: 3px;
+        bottom: 3px;
+        background: rgba(255, 255, 255, 0.43);
+        pointer-events: none;
+      `}
+    />
   );
 });
 
@@ -379,6 +459,8 @@ const TranscriptionHeader = observer(function TranscriptionHeader(props: { vm: G
     <ColumnHeader
       label={t("grid.transcription", "Transcription")}
       menuTestId="transcription-options"
+      font={gridFonts.transcription}
+      onFont={(font) => void gridFonts.setFont("transcription", font)}
       onOpen={() => vm.stop()}
       selected={vm.prefs.transcriptionPlayback}
       onSelect={(value) => vm.setTranscriptionPlayback(value)}
@@ -400,6 +482,8 @@ const TranslationHeader = observer(function TranslationHeader(props: { vm: GridV
     <ColumnHeader
       label={t("grid.freeTranslation", "Free Translation")}
       menuTestId="translation-options"
+      font={gridFonts.freeTranslation}
+      onFont={(font) => void gridFonts.setFont("freeTranslation", font)}
       onOpen={() => vm.stop()}
       selected={vm.prefs.translationPlayback}
       onSelect={(value) => vm.setTranslationPlayback(value)}
@@ -415,7 +499,7 @@ const TranslationHeader = observer(function TranslationHeader(props: { vm: GridV
   );
 });
 
-/** A column header with SayMore's "Options ▾" menu of playback choices. */
+/** A column header with SayMore's "Options ▾" menu: playback choices, then "Fonts...". */
 function ColumnHeader<V extends string>(props: {
   label: string;
   menuTestId: string;
@@ -423,8 +507,11 @@ function ColumnHeader<V extends string>(props: {
   selected: V;
   onSelect: (value: V) => void;
   onOpen: () => void;
+  font: GridFont | undefined;
+  onFont: (font: GridFont | undefined) => void;
 }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [fontDialogOpen, setFontDialogOpen] = useState(false);
   return (
     <div
       css={[
@@ -483,7 +570,28 @@ function ColumnHeader<V extends string>(props: {
             {o.label}
           </MenuItem>
         ))}
+        <Divider />
+        <MenuItem
+          dense
+          onClick={() => {
+            setAnchor(null);
+            setFontDialogOpen(true);
+          }}
+        >
+          <CheckMark checked={false} />
+          {t("grid.fontsMenu", "Fonts...")}
+        </MenuItem>
       </Menu>
+      <FontDialog
+        open={fontDialogOpen}
+        columnLabel={props.label}
+        font={props.font}
+        onCancel={() => setFontDialogOpen(false)}
+        onChoose={(font) => {
+          setFontDialogOpen(false);
+          props.onFont(font);
+        }}
+      />
     </div>
   );
 }
@@ -513,9 +621,15 @@ function cellFocusProps(vm: GridViewModel, row: number, column: GridColumn) {
 
 /** The text cell of an ignored row: "Ignored", centred, not editable, and still
  * focusable so Tab and the context menu reach it as they do in SayMore. */
-function IgnoredCell(props: { vm: GridViewModel; row: number; column: GridColumn }) {
+function IgnoredCell(props: {
+  vm: GridViewModel;
+  row: number;
+  column: GridColumn;
+  fontStyle: ReturnType<typeof gridFontStyle>;
+}) {
   return (
     <div
+      style={props.fontStyle}
       tabIndex={0}
       role="textbox"
       aria-readonly
@@ -546,6 +660,7 @@ function EditableCell(props: {
   row: number;
   column: GridColumn;
   initial: string;
+  fontStyle: ReturnType<typeof gridFontStyle>;
   placeholder: string;
   onCommit: (text: string) => void;
 }) {
@@ -573,6 +688,7 @@ function EditableCell(props: {
     >
       <input
         value={value}
+        style={props.fontStyle}
         placeholder={props.placeholder}
         {...cellFocusProps(props.vm, props.row, props.column)}
         onChange={(e) => {

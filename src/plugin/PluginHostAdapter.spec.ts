@@ -30,6 +30,9 @@ function makeFakeHost(opts: {
     writeSidecar: async () => {},
     listSidecars: async () => [],
     selectFile: async () => true,
+    saveFile: async () => ({ saved: false }),
+    getProjectSettings: async () => null,
+    setProjectSettings: async () => {},
     ffmpeg: {
       probe: async () => ({ format: {}, streams: [] }),
       run: async () => {},

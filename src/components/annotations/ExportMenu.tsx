@@ -6,13 +6,19 @@ import Button from "@mui/material/Button";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import { t } from "../../l10n";
-import { deliverExportBytes, deliverExportFile } from "../../export/deliverExportFile";
+import {
+  deliverExportBytes,
+  deliverExportFile,
+  type ExportDelivery,
+} from "../../export/deliverExportFile";
 import { exportOralAudio, type RunFfmpeg } from "../../export/audioExport";
 import type { OralAnnotationKind } from "../../fs/OralAnnotationFiles";
 import {
+  audioExportSave,
   buildExport,
   EXPORT_FORMATS,
   type ExportContext,
+  type ExportFile,
   type ExportFormat,
 } from "../../export/exportFormats";
 import type { ProjectStore } from "../../state/ProjectStore";
@@ -30,6 +36,15 @@ function exportContext(store: ProjectStore): ExportContext {
     mediaFilePath: dir ? `${dir.replace(/[\\/]+$/, "")}${separator}${media}` : media,
   };
 }
+
+/** The status line after an export: the saved file's name, or nothing for a cancel or a download. */
+export function deliveryNotice(delivery: ExportDelivery): string | undefined {
+  return delivery.kind === "saved"
+    ? t("export.saved", "Saved {fileName}.", { fileName: delivery.fileName })
+    : undefined;
+}
+
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** SayMore's "Export" drop-down; enabled only while the grid has rows. */
 export const ExportMenu = observer(function ExportMenu(props: {
@@ -71,18 +86,36 @@ export const ExportMenu = observer(function ExportMenu(props: {
         ...exportContext(store),
         runFfmpeg,
       });
-      await deliverExportBytes(result.fileName, result.bytes, result.mimeType);
-      if (result.fellBackToWav) {
-        setNotice(
-          t(
+      const extension = result.fileName.slice(result.fileName.lastIndexOf(".") + 1);
+      const delivery = await deliverExportBytes(
+        result.fileName,
+        result.bytes,
+        result.mimeType,
+        audioExportSave(kind, extension),
+      );
+      if (delivery.kind === "cancelled") return;
+      const fallback = result.fellBackToWav
+        ? t(
             "export.audioWavFallback",
             "This environment cannot make an MP3, so the audio was exported as a WAV file.",
-          ),
-        );
-      }
+          )
+        : undefined;
+      const parts = [deliveryNotice(delivery), fallback].filter(Boolean);
+      setNotice(parts.length ? parts.join(" ") : undefined);
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : String(e));
+      setNotice(errorText(e));
     }
+  };
+
+  const deliver = (build: () => ExportFile) => {
+    setNotice(undefined);
+    void (async () => {
+      try {
+        setNotice(deliveryNotice(await deliverExportFile(build())));
+      } catch (e) {
+        setNotice(errorText(e));
+      }
+    })();
   };
   const [flexOpen, setFlexOpen] = useState(false);
   const segments = store.document?.tiers.segments ?? [];
@@ -93,7 +126,7 @@ export const ExportMenu = observer(function ExportMenu(props: {
       setFlexOpen(true);
       return;
     }
-    void deliverExportFile(buildExport(format.id, segments, exportContext(store)));
+    deliver(() => buildExport(format.id, segments, exportContext(store)));
   };
 
   return (
@@ -154,9 +187,7 @@ export const ExportMenu = observer(function ExportMenu(props: {
         onCancel={() => setFlexOpen(false)}
         onExport={(flex) => {
           setFlexOpen(false);
-          void deliverExportFile(
-            buildExport("flexInterlinear", segments, exportContext(store), flex),
-          );
+          deliver(() => buildExport("flexInterlinear", segments, exportContext(store), flex));
         }}
       />
     </>

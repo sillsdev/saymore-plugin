@@ -83,7 +83,8 @@ export class GridPreferences {
   }
 }
 
-function browserStorage(): PreferenceStorage | undefined {
+/** The window's `localStorage`, or undefined where there is none or it throws. */
+export function browserStorage(): PreferenceStorage | undefined {
   try {
     // Node's own `localStorage` global warns on access, so only a window's is used.
     return typeof window === "undefined" ? undefined : window.localStorage;

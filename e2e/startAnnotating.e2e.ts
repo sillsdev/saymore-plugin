@@ -87,7 +87,7 @@ test.describe("Start Annotating", () => {
     await expect(fileTreeRow(page, SAMPLE_EAF_NAME)).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText("Free Translation")).toBeVisible();
     // ETR009_Tiny.mp3 has pauses the auto-segmenter should split on.
-    const segmentCount = await page.getByTitle("Play this segment").count();
+    const segmentCount = await page.locator('[data-testid^="grid-row-"]').count();
     expect(segmentCount).toBeGreaterThanOrEqual(2);
   });
 
@@ -117,7 +117,7 @@ test.describe("Start Annotating", () => {
 
     await expect(fileTreeRow(page, SAMPLE_EAF_NAME)).toBeVisible({ timeout: 15_000 });
     await expectGridVisible(page);
-    await expect(page.getByTitle("Play this segment")).toHaveCount(2);
+    await expect(page.locator('[data-testid^="grid-row-"]')).toHaveCount(2);
 
     const eaf = await readIdbFileText(page, SAMPLE_EAF_NAME);
     expect(eaf).toContain(`MEDIA_URL="${SAMPLE_MEDIA_NAME}"`);
@@ -154,7 +154,7 @@ test.describe("Start Annotating", () => {
 
     await expect(fileTreeRow(page, SAMPLE_EAF_NAME)).toBeVisible({ timeout: 15_000 });
     await expectGridVisible(page);
-    await expect(page.getByTitle("Play this segment")).toHaveCount(2);
+    await expect(page.locator('[data-testid^="grid-row-"]')).toHaveCount(2);
 
     const eaf = await readIdbFileText(page, SAMPLE_EAF_NAME);
     expect(eaf).toContain(`MEDIA_URL="${SAMPLE_MEDIA_NAME}"`);

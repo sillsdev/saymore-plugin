@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { act, render, screen, cleanup } from "@testing-library/react";
-import { makeAutoObservable } from "mobx";
+import { act, render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { makeAutoObservable, observable, runInAction } from "mobx";
 import { makeTimeRange, type TimeRange } from "../../model/TimeRange";
 import type { RecorderViewModel } from "../../state/recorder/RecorderViewModel";
 import type { SegmentCellState } from "../../state/recorder/recorderTypes";
@@ -200,5 +200,103 @@ describe("AnnotationCellsLayer playback cursor + recording indicator", () => {
     rerender(<AnnotationCellsLayer vm={vm} viewport={fakeViewport()} height={72} />);
     expect(screen.queryByTestId("recording-indicator")).toBeNull();
     expect(screen.getByTestId("annotation-cell-0").querySelector("canvas")).toBeTruthy();
+  });
+});
+
+describe("AnnotationCellsLayer re-record press-and-hold", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  /** A vm whose reRecordDown flips `isRecording` like the real one, which swaps the cell to the indicator. */
+  function setup() {
+    vi.spyOn(miniWaveform, "drawMiniWaveform").mockImplementation(() => {});
+    vi.spyOn(miniWaveform, "miniWaveformFromWav").mockReturnValue([]);
+    const vm = observable(
+      fakeVm(new FakeRecordingStore(new Uint8Array([1]))) as unknown as Record<string, unknown>,
+      {},
+      { deep: false },
+    ) as unknown as RecorderViewModel;
+    (vm.reRecordDown as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      runInAction(() => {
+        (vm as { isRecording: boolean }).isRecording = true;
+      });
+    });
+    const view = render(<AnnotationCellsLayer vm={vm} viewport={fakeViewport()} height={72} />);
+    fireEvent.mouseEnter(screen.getByTestId("annotation-cell-0"));
+    const press = () => {
+      const button = screen.getByTestId("cell-rerecord-0");
+      fireEvent.pointerDown(button, { button: 0, pointerId: 1 });
+      return button;
+    };
+    return { vm, view, press };
+  }
+
+  it("keeps the same button mounted when the press flips the cell to the recording indicator", () => {
+    const { press } = setup();
+    const button = press();
+    expect(screen.getByTestId("recording-indicator")).toBeTruthy();
+    expect(screen.getByTestId("cell-rerecord-0")).toBe(button);
+    expect((button as HTMLElement).style.opacity).toBe("0");
+  });
+
+  it("ends with reRecordUp when the button receives pointerup", () => {
+    const { vm, press } = setup();
+    const button = press();
+    fireEvent.pointerUp(button, { button: 0, pointerId: 1 });
+    expect(vm.reRecordUp).toHaveBeenCalledTimes(1);
+    expect(vm.abortRecording).not.toHaveBeenCalled();
+  });
+
+  it("ends with reRecordUp, once, when the pointer is released anywhere in the window", () => {
+    const { vm, press } = setup();
+    const button = press();
+    fireEvent.pointerUp(window);
+    fireEvent.pointerUp(button, { button: 0, pointerId: 1 });
+    expect(vm.reRecordUp).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the press alive when the pointer leaves the cell", () => {
+    const { vm, press } = setup();
+    press();
+    fireEvent.mouseLeave(screen.getByTestId("annotation-cell-0"));
+    expect(screen.getByTestId("cell-rerecord-0")).toBeTruthy();
+    fireEvent.pointerUp(window);
+    expect(vm.reRecordUp).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [
+      "pointercancel on the button",
+      () => fireEvent.pointerCancel(screen.getByTestId("cell-rerecord-0")),
+    ],
+    [
+      "lost pointer capture",
+      () => fireEvent.lostPointerCapture(screen.getByTestId("cell-rerecord-0")),
+    ],
+    ["pointercancel on the window", () => fireEvent.pointerCancel(window)],
+    ["window blur", () => fireEvent.blur(window)],
+  ])("aborts the take on %s", (_name, end) => {
+    const { vm, press } = setup();
+    press();
+    end();
+    expect(vm.abortRecording).toHaveBeenCalledTimes(1);
+    expect(vm.reRecordUp).not.toHaveBeenCalled();
+  });
+
+  it("aborts when the button unmounts mid-press, and ignores later window events", () => {
+    const { vm, press, view } = setup();
+    press();
+    view.unmount();
+    expect(vm.abortRecording).toHaveBeenCalledTimes(1);
+    fireEvent.pointerUp(window);
+    expect(vm.reRecordUp).not.toHaveBeenCalled();
+  });
+
+  it("ignores non-primary buttons", () => {
+    const { vm } = setup();
+    fireEvent.pointerDown(screen.getByTestId("cell-rerecord-0"), { button: 2, pointerId: 1 });
+    expect(vm.reRecordDown).not.toHaveBeenCalled();
   });
 });

@@ -10,6 +10,7 @@ import { PlaybackCursor } from "../waveform/PlaybackCursor";
 import { layoutCells, newSegmentRect, type CellRect } from "./cellLayout";
 import { drawMiniWaveform, miniWaveformFromWav, wavDurationSec } from "./miniWaveform";
 import { clipCursorXPx } from "./playbackCursor";
+import { usePressAndHold } from "./usePressAndHold";
 import { PlayIcon } from "./PlayIcon";
 import { cellOpacity } from "./segmentOpacity";
 import rerecordIconUrl from "./icons/RerecordOralAnnotation.png";
@@ -234,63 +235,51 @@ const AnnotationCell = observer(function AnnotationCell(props: {
         </button>
       )}
 
+      {cell.annotated && (hovered || isRecordingHere) && (
+        <ReRecordButton vm={vm} index={rect.index} visible={!isRecordingHere} />
+      )}
+
       {!isRecordingHere && hovered && cell.annotated && (
-        <>
-          <ReRecordButton vm={vm} index={rect.index} />
-          <button
-            type="button"
-            data-testid={`cell-erase-${rect.index}`}
-            title={t("recorder.erase", "Erase")}
-            onClick={handleErase}
-            css={iconButtonCss("top", "right")}
-          >
-            <img src={eraseIconUrl} alt="" width={14} height={14} />
-          </button>
-        </>
+        <button
+          type="button"
+          data-testid={`cell-erase-${rect.index}`}
+          title={t("recorder.erase", "Erase")}
+          onClick={handleErase}
+          css={iconButtonCss("top", "right")}
+        >
+          <img src={eraseIconUrl} alt="" width={14} height={14} />
+        </button>
       )}
     </div>
   );
 });
 
-/** Press-and-hold re-record on one cell — same abort-on-capture-loss semantics as ListenButton/SpeakButton. */
-function ReRecordButton(props: { vm: RecorderViewModel; index: number }) {
-  const { vm, index } = props;
-  const heldRef = useRef(false);
-
-  function onPointerDown(e: React.PointerEvent<HTMLButtonElement>): void {
-    if (e.button !== 0) return;
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    heldRef.current = true;
-    vm.reRecordDown(index);
-  }
-  function onPointerUp(e: React.PointerEvent<HTMLButtonElement>): void {
-    if (!heldRef.current) return;
-    heldRef.current = false;
-    e.currentTarget.releasePointerCapture?.(e.pointerId);
-    void vm.reRecordUp(index);
-  }
-  function onCaptureLost(): void {
-    if (!heldRef.current) return;
-    heldRef.current = false;
-    vm.abortRecording();
-  }
+/**
+ * Press-and-hold re-record on one cell — same abort-on-capture-loss semantics as ListenButton/SpeakButton.
+ * Pressing starts recording, which swaps the cell to the recording indicator, so the button stays
+ * mounted (invisible) for the whole press: unmounting it mid-press would abort the take.
+ */
+function ReRecordButton(props: { vm: RecorderViewModel; index: number; visible: boolean }) {
+  const { vm, index, visible } = props;
+  const hold = usePressAndHold({
+    onDown: () => vm.reRecordDown(index),
+    onUp: () => void vm.reRecordUp(index),
+    onAbort: () => vm.abortRecording(),
+  });
 
   return (
     <button
       type="button"
       data-testid={`cell-rerecord-${index}`}
       title={t("recorder.reRecord", "Press and hold to re-record")}
-      onPointerDown={onPointerDown}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onCaptureLost}
-      onLostPointerCapture={onCaptureLost}
+      {...hold}
       css={iconButtonCss("bottom", "right")}
+      style={{ opacity: visible ? 1 : 0, touchAction: "none" }}
     >
       <img src={rerecordIconUrl} alt="" width={14} height={14} draggable={false} />
     </button>
   );
 }
-
 /** Not a decodable WAV (shouldn't happen for our own recordings) -> 0, same as no clip. */
 function safeWavDurationSec(bytes: Uint8Array): number {
   try {

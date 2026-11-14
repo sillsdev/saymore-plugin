@@ -1,10 +1,10 @@
 /** @jsxImportSource @emotion/react */
 import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
-import { useRef } from "react";
 import { t } from "../../l10n";
 import { LAMETA_UI_FONT } from "../../lametaTheme";
 import type { RecorderViewModel } from "../../state/recorder/RecorderViewModel";
+import { usePressAndHold } from "./usePressAndHold";
 import listenIconUrl from "./icons/ListenToOriginalRecording.png";
 import listenIconDownUrl from "./icons/ListenToOriginalRecordingDown.png";
 import speakIconUrl from "./icons/RecordOralAnnotation.png";
@@ -61,30 +61,11 @@ function PressHoldButton(props: {
   onAbort: () => void;
 }) {
   const { label, icon, pressed, disabled, onDown, onUp, onAbort } = props;
-  // Guards against handling the same release twice: an explicit
-  // releasePointerCapture() and a real pointerup both end up notifying
-  // "lostpointercapture" — only the first should fire an action.
-  const heldRef = useRef(false);
+  const hold = usePressAndHold({ onDown, onUp, onAbort });
 
   function handlePointerDown(e: React.PointerEvent<HTMLButtonElement>): void {
-    if (disabled || e.button !== 0) return;
-    // Optional: jsdom/happy-dom (specs) don't implement the Pointer Capture API.
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    heldRef.current = true;
-    onDown();
-  }
-
-  function handlePointerUp(e: React.PointerEvent<HTMLButtonElement>): void {
-    if (!heldRef.current) return;
-    heldRef.current = false;
-    e.currentTarget.releasePointerCapture?.(e.pointerId);
-    onUp();
-  }
-
-  function handleCaptureLost(): void {
-    if (!heldRef.current) return;
-    heldRef.current = false;
-    onAbort();
+    if (disabled) return;
+    hold.onPointerDown(e);
   }
 
   return (
@@ -94,9 +75,9 @@ function PressHoldButton(props: {
       aria-pressed={pressed}
       aria-label={label}
       onPointerDown={handlePointerDown}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handleCaptureLost}
-      onLostPointerCapture={handleCaptureLost}
+      onPointerUp={hold.onPointerUp}
+      onPointerCancel={hold.onPointerCancel}
+      onLostPointerCapture={hold.onLostPointerCapture}
       css={css`
         display: flex;
         flex-direction: column;

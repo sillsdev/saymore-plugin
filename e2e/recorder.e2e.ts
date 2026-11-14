@@ -53,31 +53,31 @@ test.describe("Oral Annotations recorder (Careful Speech / Oral Translation)", (
     await createTwoRealSegments(page);
     await openRecorder(page, "Careful Speech");
 
-    await holdKey(page, " ", LISTEN_SEGMENT0_HOLD_MS);
+    // Listening arms Speak only if playback reached the segment end before release. Under load
+    // playback starts late, so hold again until Speak is armed (as a user would).
+    const speak = page.getByRole("button", { name: "Speak" });
+    await expect(async () => {
+      await holdKey(page, " ", LISTEN_SEGMENT0_HOLD_MS);
+      await expect(speak).toBeEnabled({ timeout: 500 });
+    }).toPass({ timeout: 30_000 });
     const filesBefore = await listIdbFileNames(page);
 
-    await holdKey(page, " ", TOO_SHORT_HOLD_MS);
+    // Time the press inside the page: each Playwright key call is a round trip that a loaded
+    // machine stretches past MIN_SEGMENT_LENGTH_MS, turning a 200 ms press into a long one.
+    await page.evaluate(async (holdMs) => {
+      const press = (type: string) =>
+        window.dispatchEvent(new KeyboardEvent(type, { key: " ", code: "Space", bubbles: true }));
+      press("keydown");
+      await new Promise((resolve) => setTimeout(resolve, holdMs));
+      press("keyup");
+    }, TOO_SHORT_HOLD_MS);
 
     await expect(page.getByText(/Whoops/i)).toBeVisible();
     expect(await listIdbFileNames(page)).toEqual(filesBefore);
     await expect(page.locator('[data-testid="cell-play-0"]')).toHaveCount(0);
   });
 
-  // test.fixme: fresh regression in ecbdd52 (Recorder segment state as waveform
-  // opacity, not fills) broke re-record entirely. AnnotationCellsLayer.tsx's
-  // ReRecordButton is only rendered when `!isRecordingHere && hovered &&
-  // cell.annotated` (lines 237-250) — but pointerdown on that very button
-  // calls vm.reRecordDown(), which synchronously flips vm.isRecording=true,
-  // making isRecordingHere true and UNMOUNTING the button (and its pointer
-  // capture) mid-gesture. The subsequent pointerup has nothing to land on, so
-  // reRecordUp() never fires and the VM is stuck "recording" forever (verified
-  // via the failure snapshot: "Speak [disabled] [pressed] ... Recording…
-  // Length: 05.9" seconds after mouse.up()). Fix belongs to whoever owns
-  // AnnotationCellsLayer.tsx (Track C) — the re-record button (or its pointer
-  // capture) needs to survive its own isRecordingHere transition, e.g. render
-  // it disabled-but-present instead of unmounting, or move the isRecordingHere
-  // branch to not swallow the button. Flip to `test` once fixed.
-  test.fixme("re-record, erase, and undo round-trip a cell's recording", async ({ page }) => {
+  test("re-record, erase, and undo round-trip a cell's recording", async ({ page }) => {
     await openSample(page, { sel: "audio" });
     await createTwoRealSegments(page);
     await openRecorder(page, "Careful Speech");

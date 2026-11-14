@@ -10,16 +10,14 @@ import MenuItem from "@mui/material/MenuItem";
 import { t } from "../../l10n";
 import type { ProjectStore } from "../../state/ProjectStore";
 import { gridPreferences } from "../../state/GridPreferences";
-import { gridFonts, type GridFont } from "../../state/GridFonts";
+import { gridFonts } from "../../state/GridFonts";
 import { GridViewModel, type GridColumn } from "../../state/GridViewModel";
 import type { TimeRange } from "../../model/TimeRange";
 import { LAMETA_UI_FONT } from "../../lametaTheme";
-import { DEFAULT_ROW_HEIGHT, gridFontStyle, gridRowHeight } from "./gridFontStyle";
+import { gridFontStyle, gridRowHeight } from "./gridFontStyle";
 import { FontDialog } from "./FontDialog";
 import { playbackFillFraction, segmentTooltip } from "./segmentCell";
 
-/** The row height with the default fonts; larger column fonts make every row taller. */
-export const GRID_ROW_HEIGHT = DEFAULT_ROW_HEIGHT;
 /** Rows rendered above and below the ones on screen. */
 const OVERSCAN_ROWS = 8;
 /** Viewport height assumed until the scroll container has been measured. */
@@ -259,8 +257,6 @@ const GridRow = observer(function GridRow(props: {
   const current = i === vm.currentRow;
   // SayMore greys ignored rows except the current one.
   const greyed = ignored && !current;
-  const transcriptionFont = gridFontStyle(gridFonts.transcription);
-  const freeTranslationFont = gridFontStyle(gridFonts.freeTranslation);
   return (
     <div
       data-testid={`grid-row-${i}`}
@@ -289,8 +285,8 @@ const GridRow = observer(function GridRow(props: {
       <SegmentCell store={store} vm={vm} row={i} range={seg.range} current={current} />
       {ignored ? (
         <>
-          <IgnoredCell vm={vm} row={i} column="transcription" fontStyle={transcriptionFont} />
-          <IgnoredCell vm={vm} row={i} column="freeTranslation" fontStyle={freeTranslationFont} />
+          <IgnoredCell vm={vm} row={i} column="transcription" />
+          <IgnoredCell vm={vm} row={i} column="freeTranslation" />
         </>
       ) : (
         <>
@@ -300,7 +296,6 @@ const GridRow = observer(function GridRow(props: {
             column="transcription"
             vm={vm}
             initial={seg.transcription}
-            fontStyle={transcriptionFont}
             placeholder={t("grid.transcriptionPlaceholder", "transcription…")}
             onCommit={(text) => void saveCell(store, i, "transcription", text)}
           />
@@ -310,7 +305,6 @@ const GridRow = observer(function GridRow(props: {
             column="freeTranslation"
             vm={vm}
             initial={seg.freeTranslation}
-            fontStyle={freeTranslationFont}
             placeholder={t("grid.freeTranslationPlaceholder", "free translation…")}
             onCommit={(text) => void saveCell(store, i, "freeTranslation", text)}
           />
@@ -463,8 +457,7 @@ const TranscriptionHeader = observer(function TranscriptionHeader(props: { vm: G
     <ColumnHeader
       label={t("grid.transcription", "Transcription")}
       menuTestId="transcription-options"
-      font={gridFonts.transcription}
-      onFont={(font) => void gridFonts.setFont("transcription", font)}
+      column="transcription"
       onOpen={() => vm.stop()}
       selected={vm.prefs.transcriptionPlayback}
       onSelect={(value) => vm.setTranscriptionPlayback(value)}
@@ -486,8 +479,7 @@ const TranslationHeader = observer(function TranslationHeader(props: { vm: GridV
     <ColumnHeader
       label={t("grid.freeTranslation", "Free Translation")}
       menuTestId="translation-options"
-      font={gridFonts.freeTranslation}
-      onFont={(font) => void gridFonts.setFont("freeTranslation", font)}
+      column="freeTranslation"
       onOpen={() => vm.stop()}
       selected={vm.prefs.translationPlayback}
       onSelect={(value) => vm.setTranslationPlayback(value)}
@@ -511,8 +503,7 @@ function ColumnHeader<V extends string>(props: {
   selected: V;
   onSelect: (value: V) => void;
   onOpen: () => void;
-  font: GridFont | undefined;
-  onFont: (font: GridFont | undefined) => void;
+  column: GridColumn;
 }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [fontDialogOpen, setFontDialogOpen] = useState(false);
@@ -586,19 +577,36 @@ function ColumnHeader<V extends string>(props: {
           {t("grid.fontsMenu", "Fonts...")}
         </MenuItem>
       </Menu>
-      <FontDialog
+      <ColumnFontDialog
         open={fontDialogOpen}
+        column={props.column}
         columnLabel={props.label}
-        font={props.font}
-        onCancel={() => setFontDialogOpen(false)}
-        onChoose={(font) => {
-          setFontDialogOpen(false);
-          props.onFont(font);
-        }}
+        onClose={() => setFontDialogOpen(false)}
       />
     </div>
   );
 }
+
+/** The Fonts dialog for `column`, reading and storing that column's font in {@link gridFonts}. */
+const ColumnFontDialog = observer(function ColumnFontDialog(props: {
+  open: boolean;
+  column: GridColumn;
+  columnLabel: string;
+  onClose: () => void;
+}) {
+  return (
+    <FontDialog
+      open={props.open}
+      columnLabel={props.columnLabel}
+      font={gridFonts.font(props.column)}
+      onCancel={props.onClose}
+      onChoose={(font) => {
+        props.onClose();
+        void gridFonts.setFont(props.column, font);
+      }}
+    />
+  );
+});
 
 function CheckMark(props: { checked: boolean }) {
   return (
@@ -625,15 +633,14 @@ function cellFocusProps(vm: GridViewModel, row: number, column: GridColumn) {
 
 /** The text cell of an ignored row: "Ignored", centred, not editable, and still
  * focusable so Tab and the context menu reach it as they do in SayMore. */
-function IgnoredCell(props: {
+const IgnoredCell = observer(function IgnoredCell(props: {
   vm: GridViewModel;
   row: number;
   column: GridColumn;
-  fontStyle: ReturnType<typeof gridFontStyle>;
 }) {
   return (
     <div
-      style={props.fontStyle}
+      style={gridFontStyle(gridFonts.font(props.column))}
       tabIndex={0}
       role="textbox"
       aria-readonly
@@ -652,19 +659,18 @@ function IgnoredCell(props: {
       {t("grid.ignoredIndicator", "Ignored")}
     </div>
   );
-}
+});
 
 /**
  * A grid text cell that edits locally and commits on blur / Enter (so we don't
  * rewrite the eaf on every keystroke). Escape reverts. A cell that leaves the
  * DOM (scrolled away, row ignored) while holding an uncommitted edit commits it.
  */
-function EditableCell(props: {
+const EditableCell = observer(function EditableCell(props: {
   vm: GridViewModel;
   row: number;
   column: GridColumn;
   initial: string;
-  fontStyle: ReturnType<typeof gridFontStyle>;
   placeholder: string;
   onCommit: (text: string) => void;
 }) {
@@ -692,7 +698,7 @@ function EditableCell(props: {
     >
       <input
         value={value}
-        style={props.fontStyle}
+        style={gridFontStyle(gridFonts.font(props.column))}
         placeholder={props.placeholder}
         {...cellFocusProps(props.vm, props.row, props.column)}
         onChange={(e) => {
@@ -727,4 +733,4 @@ function EditableCell(props: {
       />
     </div>
   );
-}
+});

@@ -8,7 +8,8 @@ import { IGNORE_MARKER } from "../../model/IgnoreMarkers";
 import { makeTimeRange } from "../../model/TimeRange";
 import { AnnotationDocumentStore } from "../../state/AnnotationDocumentStore";
 import { gridPreferences } from "../../state/GridPreferences";
-import { gridFonts, type SettingsStorage } from "../../state/GridFonts";
+import { gridFonts } from "../../state/GridFonts";
+import { memoryStorage } from "../../state/memorySettingsStorage";
 import { AUTOPLAY_DELAY_MS } from "../../state/GridViewModel";
 import type { ProjectStore } from "../../state/ProjectStore";
 import { SegmenterViewModel } from "../../state/SegmenterViewModel";
@@ -132,16 +133,6 @@ function observePlayback(playback: SpyPlaybackEngine): SpyPlaybackEngine {
   });
 }
 
-function memorySettings(): SettingsStorage {
-  let value: unknown = null;
-  return {
-    read: async () => value,
-    write: async (v) => {
-      value = v;
-    },
-  };
-}
-
 describe("TranscriptionGrid: SayMore's first column", () => {
   afterEach(() => cleanup());
 
@@ -220,7 +211,7 @@ describe("TranscriptionGrid: column fonts", () => {
   });
 
   it("applies each column's font to its cells", async () => {
-    await gridFonts.useStorage(memorySettings());
+    await gridFonts.useStorage(memoryStorage().storage);
     await gridFonts.setFont("transcription", { family: "Charis SIL", sizePt: 14, bold: true });
     const { store } = makeStore(2, [1]);
     render(<TranscriptionGrid store={store} />);
@@ -233,7 +224,7 @@ describe("TranscriptionGrid: column fonts", () => {
   });
 
   it("Options > Fonts... sets the column's font and stores it with the project", async () => {
-    const storage = memorySettings();
+    const { storage } = memoryStorage();
     await gridFonts.useStorage(storage);
     const { store } = makeStore(2);
     render(<TranscriptionGrid store={store} />);

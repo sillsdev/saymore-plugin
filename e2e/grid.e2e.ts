@@ -64,17 +64,18 @@ async function segmentRange(page: Page, row: number): Promise<{ start: number; e
   return { start: seconds(match[1]), end: seconds(match[2]) };
 }
 
-test.describe("Transcription grid: SayMore behaviour", () => {
-  async function openGrid(page: Page) {
-    await openSample(page, { sel: "audio" });
-    await page.getByRole("button", { name: /Auto-segment/i }).click();
-    await expect(page.getByText("Free Translation")).toBeVisible({ timeout: 15_000 });
-    // The bundled sample auto-segments into three rows.
-    await expect(page.getByTestId("grid-row-2")).toBeVisible();
-  }
-  const cell = (page: Page, row: number, column: "transcription" | "freeTranslation") =>
-    page.locator(`[data-grid-cell="${row}:${column}"]`);
+async function openGrid(page: Page) {
+  await openSample(page, { sel: "audio" });
+  await page.getByRole("button", { name: /Auto-segment/i }).click();
+  await expect(page.getByText("Free Translation")).toBeVisible({ timeout: 15_000 });
+  // The bundled sample auto-segments into three rows.
+  await expect(page.getByTestId("grid-row-2")).toBeVisible();
+}
 
+const cell = (page: Page, row: number, column: "transcription" | "freeTranslation") =>
+  page.locator(`[data-grid-cell="${row}:${column}"]`);
+
+test.describe("Transcription grid: SayMore behaviour", () => {
   async function ignoreRow(page: Page, row: number) {
     await cell(page, row, "transcription").click({ button: "right" });
     await page.getByRole("menuitemcheckbox", { name: "Ignored" }).click();
@@ -199,15 +200,6 @@ test.describe("Transcription grid: SayMore behaviour", () => {
 });
 
 test.describe("Transcription grid: fonts and playback fill", () => {
-  async function openGrid(page: Page) {
-    await openSample(page, { sel: "audio" });
-    await page.getByRole("button", { name: /Auto-segment/i }).click();
-    await expect(page.getByText("Free Translation")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("grid-row-2")).toBeVisible();
-  }
-  const cell = (page: Page, row: number, column: "transcription" | "freeTranslation") =>
-    page.locator(`[data-grid-cell="${row}:${column}"]`);
-
   test("a column font chosen with Options > Fonts... applies to its cells and persists", async ({
     page,
   }) => {

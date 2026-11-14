@@ -21,7 +21,8 @@ import { connectToLameta, serveTabProvider } from "./plugin/lametaPluginClient";
 import { resolveSaymoreTabs } from "./plugin/tabProvider";
 import { setHostApi } from "./plugin/hostApi";
 import { convertToStandardAudio, selectStandardAudio } from "./plugin/standardAudio";
-import { gridFonts, hostSettingsStorage } from "./state/GridFonts";
+import { gridFonts, hostSettingsStorage, localSettingsStorage } from "./state/GridFonts";
+import { browserStorage } from "./state/GridPreferences";
 import {
   cancelSegmenterRequest,
   requestSegmenterOn,
@@ -73,7 +74,11 @@ export const App = observer(function App() {
   const connRef = useRef<PluginConnection | undefined>(undefined);
 
   useEffect(() => {
-    if (!embedded) return;
+    if (!embedded) {
+      // The harness keeps the project settings in localStorage.
+      void gridFonts.useStorage(localSettingsStorage(browserStorage()));
+      return;
+    }
     let cancelled = false;
     void (async () => {
       try {
@@ -305,13 +310,7 @@ export const App = observer(function App() {
             />
           )
         ) : store.document ? (
-          <AnnotationsPaneView
-            store={store}
-            onSetupOralAnnotations={handleSetupOralAnnotations}
-            runFfmpeg={
-              connRef.current ? (spec) => connRef.current!.api.ffmpeg.run(spec) : undefined
-            }
-          />
+          <AnnotationsPaneView store={store} onSetupOralAnnotations={handleSetupOralAnnotations} />
         ) : convertMediaName ? (
           <FileConversionView
             sourceName={convertMediaName}

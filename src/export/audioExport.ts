@@ -1,6 +1,7 @@
 import type { FileSystemAdapter } from "../fs/FileSystemAdapter";
 import type { OralAnnotationIndex, OralAnnotationKind } from "../fs/OralAnnotationFiles";
 import { oralAnnotationsFolderName } from "../fs/OralAnnotationFiles";
+import { hostApi } from "../plugin/hostApi";
 import { concatenateWavs, sortSegmentWavNames } from "./combineSegmentAudio";
 
 /** ffmpeg output options of SayMore's "Extract audio to mono mp3 audio file (low quality)". */
@@ -39,10 +40,16 @@ export async function combineSegmentAudio(
   return concatenateWavs(clips);
 }
 
+/** The connected host's ffmpeg; undefined in the dev harness. */
+function hostFfmpeg(): RunFfmpeg | undefined {
+  const api = hostApi();
+  return api ? (spec) => api.ffmpeg.run(spec) : undefined;
+}
+
 /**
- * SayMore's audio export: the combined clips as a mono mp3 when `runFfmpeg` is
- * given (through temporary companion files that are removed afterwards), else
- * as the combined WAV.
+ * SayMore's audio export: the combined clips as a mono mp3 when there is an
+ * ffmpeg (`runFfmpeg`, by default the host's), through temporary companion files
+ * that are removed afterwards, else as the combined WAV.
  */
 export async function exportOralAudio(opts: {
   adapter: FileSystemAdapter;
@@ -52,7 +59,7 @@ export async function exportOralAudio(opts: {
   mediaFileName: string;
   runFfmpeg?: RunFfmpeg;
 }): Promise<AudioExportResult> {
-  const { adapter, index, kind, sessionId, mediaFileName, runFfmpeg } = opts;
+  const { adapter, index, kind, sessionId, mediaFileName, runFfmpeg = hostFfmpeg() } = opts;
   const baseName = `${sessionId}_${AUDIO_EXPORT_SUFFIX[kind]}`;
   const wav = await combineSegmentAudio(adapter, index, kind);
   if (!runFfmpeg) {

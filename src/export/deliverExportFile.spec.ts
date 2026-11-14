@@ -1,8 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginHostApiV1 } from "../plugin/PluginApiTypes";
-import { deliveryNotice } from "../components/annotations/ExportMenu";
-import { deliverExportBytes, deliverExportFile } from "./deliverExportFile";
+import { deliverExportBytes, deliverExportFile, deliveryNotice } from "./deliverExportFile";
 import {
   audioExportSave,
   AUDACITY_EXPORT_FOLDER_KEY,

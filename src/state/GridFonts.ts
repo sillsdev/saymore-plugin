@@ -1,6 +1,6 @@
 import { makeAutoObservable, runInAction } from "mobx";
 import type { PluginHostApiV1 } from "../plugin/PluginApiTypes";
-import { browserStorage, type PreferenceStorage } from "./GridPreferences";
+import type { PreferenceStorage } from "./GridPreferences";
 import type { GridColumn } from "./GridViewModel";
 
 /**
@@ -17,20 +17,18 @@ export interface GridFont {
 /** The version of the project settings this build reads and writes. */
 export const PROJECT_SETTINGS_VERSION = 1;
 
-/** The plugin's settings for the whole project, as lameta stores them in the project folder. */
-export interface ProjectSettingsV1 {
-  version: 1;
-  transcriptionFont?: GridFont;
-  freeTranslationFont?: GridFont;
-}
-
 /** Where the project settings live: lameta's project folder, or `localStorage` in the harness. */
 export interface SettingsStorage {
   read(): Promise<unknown>;
   write(value: unknown): Promise<void>;
 }
 
-export const SIZE_RANGE_PT = { min: 4, max: 72 } as const;
+/** The sizes Windows' font dialog lists, which SayMore's Fonts dialog is. */
+export const FONT_SIZES_PT: readonly number[] = [
+  8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72,
+];
+
+const SIZE_RANGE_PT = { min: 4, max: FONT_SIZES_PT[FONT_SIZES_PT.length - 1] } as const;
 
 /** A stored font, or undefined when the value is not one. */
 export function parseGridFont(value: unknown): GridFont | undefined {
@@ -48,6 +46,12 @@ export function parseGridFont(value: unknown): GridFont | undefined {
 const FONT_KEY: Record<GridColumn, "transcriptionFont" | "freeTranslationFont"> = {
   transcription: "transcriptionFont",
   freeTranslation: "freeTranslationFont",
+};
+const GRID_COLUMNS = Object.keys(FONT_KEY) as GridColumn[];
+
+const NO_STORAGE: SettingsStorage = {
+  read: async () => null,
+  write: async () => {},
 };
 
 /** lameta's project settings for this plugin. */
@@ -83,10 +87,13 @@ export function localSettingsStorage(storage: PreferenceStorage | undefined): Se
  * version of the plugin are read where they parse, and never overwritten.
  */
 export class GridFonts {
-  transcription: GridFont | undefined = undefined;
-  freeTranslation: GridFont | undefined = undefined;
+  private fonts: Record<GridColumn, GridFont | undefined> = {
+    transcription: undefined,
+    freeTranslation: undefined,
+  };
 
-  private storage: SettingsStorage;
+  /** Writes go nowhere until `useStorage` names where the settings live. */
+  private storage: SettingsStorage = NO_STORAGE;
   /** Everything in the stored value, so a write keeps keys this build does not know. */
   private stored: Record<string, unknown> = {};
   /** Bumped by each `useStorage`, so a slower earlier read cannot win. */
@@ -95,8 +102,7 @@ export class GridFonts {
    * into the settings as read and the read cannot then put back the font it replaced. */
   private reading: Promise<void> = Promise.resolve();
 
-  constructor(storage: SettingsStorage) {
-    this.storage = storage;
+  constructor() {
     makeAutoObservable<GridFonts, "storage" | "stored" | "generation" | "reading" | "read">(this, {
       storage: false,
       stored: false,
@@ -106,8 +112,16 @@ export class GridFonts {
     });
   }
 
+  get transcription(): GridFont | undefined {
+    return this.fonts.transcription;
+  }
+
+  get freeTranslation(): GridFont | undefined {
+    return this.fonts.freeTranslation;
+  }
+
   font(column: GridColumn): GridFont | undefined {
-    return column === "transcription" ? this.transcription : this.freeTranslation;
+    return this.fonts[column];
   }
 
   /** Read the fonts from `storage` and keep it for later writes. */
@@ -128,8 +142,9 @@ export class GridFonts {
     const stored = value && typeof value === "object" && !Array.isArray(value) ? value : {};
     runInAction(() => {
       this.stored = { ...(stored as Record<string, unknown>) };
-      this.transcription = parseGridFont(this.stored.transcriptionFont);
-      this.freeTranslation = parseGridFont(this.stored.freeTranslationFont);
+      for (const column of GRID_COLUMNS) {
+        this.fonts[column] = parseGridFont(this.stored[FONT_KEY[column]]);
+      }
     });
   }
 
@@ -138,8 +153,7 @@ export class GridFonts {
     await this.reading;
     const parsed = font ? parseGridFont(font) : undefined;
     runInAction(() => {
-      if (column === "transcription") this.transcription = parsed;
-      else this.freeTranslation = parsed;
+      this.fonts[column] = parsed;
     });
     const storedVersion = this.stored.version;
     if (typeof storedVersion === "number" && storedVersion > PROJECT_SETTINGS_VERSION) return;
@@ -151,6 +165,8 @@ export class GridFonts {
   }
 }
 
-/** The fonts the running app's grid uses; App switches them to lameta's storage when embedded. */
-export const gridFonts = new GridFonts(localSettingsStorage(browserStorage()));
-void gridFonts.useStorage(localSettingsStorage(browserStorage()));
+/**
+ * The fonts the running app's grid uses. App points them at lameta's project settings when
+ * embedded, and at `localStorage` in the harness.
+ */
+export const gridFonts = new GridFonts();

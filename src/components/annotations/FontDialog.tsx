@@ -12,7 +12,7 @@ import FormControlLabel from "@mui/material/FormControlLabel";
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
 import { t } from "../../l10n";
-import type { GridFont } from "../../state/GridFonts";
+import { FONT_SIZES_PT, parseGridFont, type GridFont } from "../../state/GridFonts";
 import { gridFontStyle, quoteFamily } from "./gridFontStyle";
 
 /** SIL fonts that language projects commonly have installed. */
@@ -25,11 +25,6 @@ export const SIL_FONTS: readonly string[] = [
   "Scheherazade New",
   "Abyssinica SIL",
   "Padauk",
-];
-
-/** The sizes Windows' font dialog lists, which SayMore's Fonts dialog is. */
-export const FONT_SIZES_PT: readonly number[] = [
-  8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72,
 ];
 
 const DEFAULT_SIZE_PT = 10;
@@ -88,15 +83,7 @@ export function FontDialog(props: {
     setChoices(installedSilFonts());
   }, [props.open, props.font]);
 
-  const chosen: GridFont | undefined =
-    family.trim() === ""
-      ? undefined
-      : {
-          family: family.trim(),
-          sizePt,
-          ...(bold ? { bold: true } : {}),
-          ...(italic ? { italic: true } : {}),
-        };
+  const chosen = parseGridFont({ family, sizePt, bold, italic });
 
   return (
     <Dialog open={props.open} onClose={props.onCancel} maxWidth="xs" fullWidth>

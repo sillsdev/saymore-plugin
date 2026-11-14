@@ -9,9 +9,9 @@ import { t } from "../../l10n";
 import {
   deliverExportBytes,
   deliverExportFile,
-  type ExportDelivery,
+  deliveryNotice,
 } from "../../export/deliverExportFile";
-import { exportOralAudio, type RunFfmpeg } from "../../export/audioExport";
+import { exportOralAudio } from "../../export/audioExport";
 import type { OralAnnotationKind } from "../../fs/OralAnnotationFiles";
 import {
   audioExportSave,
@@ -37,22 +37,11 @@ function exportContext(store: ProjectStore): ExportContext {
   };
 }
 
-/** The status line after an export: the saved file's name, or nothing for a cancel or a download. */
-export function deliveryNotice(delivery: ExportDelivery): string | undefined {
-  return delivery.kind === "saved"
-    ? t("export.saved", "Saved {fileName}.", { fileName: delivery.fileName })
-    : undefined;
-}
-
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** SayMore's "Export" drop-down; enabled only while the grid has rows. */
-export const ExportMenu = observer(function ExportMenu(props: {
-  store: ProjectStore;
-  /** The host's ffmpeg, present only inside lameta; without it the audio exports deliver WAV. */
-  runFfmpeg?: RunFfmpeg;
-}) {
-  const { store, runFfmpeg } = props;
+export const ExportMenu = observer(function ExportMenu(props: { store: ProjectStore }) {
+  const { store } = props;
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [recorded, setRecorded] = useState<Record<OralAnnotationKind, boolean>>({
     Careful: false,
@@ -84,9 +73,8 @@ export const ExportMenu = observer(function ExportMenu(props: {
         index,
         kind,
         ...exportContext(store),
-        runFfmpeg,
       });
-      const extension = result.fileName.slice(result.fileName.lastIndexOf(".") + 1);
+      const extension = result.fellBackToWav ? "wav" : "mp3";
       const delivery = await deliverExportBytes(
         result.fileName,
         result.bytes,

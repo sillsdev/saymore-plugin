@@ -1,3 +1,4 @@
+import { t } from "../l10n";
 import { hostApi } from "../plugin/hostApi";
 import type { PluginHostApiV1 } from "../plugin/PluginApiTypes";
 import type { ExportFile, SaveDialogSetup } from "./exportFormats";
@@ -12,6 +13,13 @@ export type ExportDelivery =
   | { kind: "cancelled" }
   | { kind: "downloaded"; fileName: string };
 
+/** The status line after an export: the saved file's name, or nothing for a cancel or a download. */
+export function deliveryNotice(delivery: ExportDelivery): string | undefined {
+  return delivery.kind === "saved"
+    ? t("export.saved", "Saved {fileName}.", { fileName: delivery.fileName })
+    : undefined;
+}
+
 /**
  * The one place a text export leaves the plugin: lameta's Save dialog when the
  * host is connected, otherwise a browser download. Either way the file name is
@@ -21,11 +29,7 @@ export function deliverExportFile(
   file: ExportFile,
   api: PluginHostApiV1 | undefined = hostApi(),
 ): Promise<ExportDelivery> {
-  const bom = file.bom ? new Uint8Array([0xef, 0xbb, 0xbf]) : new Uint8Array(0);
-  const text = new TextEncoder().encode(file.text);
-  const bytes = new Uint8Array(bom.length + text.length);
-  bytes.set(bom, 0);
-  bytes.set(text, bom.length);
+  const bytes = new TextEncoder().encode((file.bom ? "﻿" : "") + file.text);
   return deliverExportBytes(file.fileName, bytes, file.mimeType, file.save, api);
 }
 

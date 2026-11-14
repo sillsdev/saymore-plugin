@@ -29,8 +29,10 @@ export interface PlaybackEngine {
   readonly isPlaying: boolean;
   /** True between {@link pause} and {@link resume}; the paused range or sequence stays pending. */
   readonly isPaused: boolean;
-  /** Current playhead position in seconds. */
+  /** Current playhead position in seconds, in the clip that is playing. */
   readonly positionSec: number;
+  /** The URL of the oral recording that is playing, or undefined while the main media plays. */
+  readonly clipUrl: string | undefined;
 
   /** Play a sub-range of the main media (or the whole thing if omitted). */
   play(range?: TimeRange, opts?: PlayOptions): Promise<void>;
@@ -68,6 +70,7 @@ export class SpyPlaybackEngine implements PlaybackEngine {
   isPlaying = false;
   isPaused = false;
   positionSec = 0;
+  clipUrl: string | undefined = undefined;
   readonly calls: PlaybackCall[] = [];
 
   async play(range?: TimeRange, opts?: PlayOptions): Promise<void> {
@@ -163,6 +166,7 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
   isPlaying = false;
   isPaused = false;
   positionSec = 0;
+  clipUrl: string | undefined = undefined;
 
   private mainEl: HTMLMediaElement;
   private readonly ownsMainEl: boolean;
@@ -231,6 +235,10 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
 
   private setPosition(sec: number): void {
     this.positionSec = sec;
+  }
+
+  private setClipUrl(url: string | undefined): void {
+    this.clipUrl = url;
   }
 
   private cancelRaf(): void {
@@ -343,6 +351,7 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
 
   play(range?: TimeRange, opts?: PlayOptions): Promise<void> {
     this.stop();
+    this.setClipUrl(undefined);
     return this.playRangeOnElement(this.mainEl, range, clampRate(opts?.rate), opts?.maxLoops ?? 1);
   }
 
@@ -356,6 +365,7 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
       for (const src of sources) {
         if (this.stopRequested || generation !== this.stopCount) return;
         const el = src.url ? this.getExtraEl(src.url) : this.mainEl;
+        this.setClipUrl(src.url);
         await this.playRangeOnElement(el, src.range, rate, 1);
         if (this.stopRequested || generation !== this.stopCount) return;
       }

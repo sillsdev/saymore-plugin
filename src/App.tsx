@@ -19,13 +19,15 @@ import {
 } from "./plugin/connectPlugin";
 import { connectToLameta, serveTabProvider } from "./plugin/lametaPluginClient";
 import { resolveSaymoreTabs } from "./plugin/tabProvider";
+import { setHostApi } from "./plugin/hostApi";
+import { convertToStandardAudio, selectStandardAudio } from "./plugin/standardAudio";
+import { gridFonts, hostSettingsStorage } from "./state/GridFonts";
 import {
   cancelSegmenterRequest,
   requestSegmenterOn,
   takeSegmenterRequest,
 } from "./plugin/segmenterHandoff";
 import { annotationsEafName, standardAudioName } from "./fs/SessionFolder";
-import { STANDARD_AUDIO_FFMPEG_ARGS } from "./model/SayMoreConstants";
 import { createEafFromTemplate, serializeEaf } from "./model/eaf/EafDocument";
 import { eafTemplateXml } from "./model/eaf/eafTemplate";
 import { autoSegmentToEaf } from "./audio/autoSegmentToEaf";
@@ -90,6 +92,8 @@ export const App = observer(function App() {
         // Content tab.
         const conn = buildPluginConnection(context, api);
         connRef.current = conn;
+        setHostApi(api);
+        void gridFonts.useStorage(hostSettingsStorage(api));
 
         // A media selection only ever reaches here with no `.eaf` (the provider hides
         // our tab once one exists), but we re-check defensively — and to never
@@ -108,13 +112,7 @@ export const App = observer(function App() {
             const wavName = standardAudioName(conn.selectedFileName);
             const wavExists = await conn.adapter.exists(wavName);
             if (cancelled) return;
-            if (wavExists) {
-              try {
-                if (await conn.api.selectFile(wavName)) return;
-              } catch {
-                /* host without selectFile: fall through to the conversion offer */
-              }
-            }
+            if (wavExists && (await selectStandardAudio(conn.api, wavName))) return;
             setConvertMediaName(conn.selectedFileName);
             return;
           }
@@ -187,23 +185,12 @@ export const App = observer(function App() {
     store.showSegmenter();
   }
 
-  // File-conversion screen "Convert": ask the host to run ffmpeg over the selected
-  // non-WAV media, producing `<base>_StandardAudio.wav` beside it (progress 0→1 drives the
-  // bar), then reselect that WAV so the host recreates this iframe on it and the normal
-  // Start Annotating (auto/manual) flow runs. A host without `selectFile` surfaces the
-  // rejection as an error in the conversion view.
+  // File-conversion screen "Convert": see convertToStandardAudio. The host recreates this
+  // iframe on the new WAV's Start Annotating tab.
   async function handleConvert(onProgress: (fraction: number) => void): Promise<void> {
     const conn = connRef.current;
     if (!conn) throw new Error("Not connected to lameta.");
-    const wavName = standardAudioName(conn.selectedFileName);
-    await conn.api.ffmpeg.run({
-      outputRelPath: wavName,
-      args: STANDARD_AUDIO_FFMPEG_ARGS,
-      onProgress,
-    });
-    if (!(await conn.api.selectFile(wavName))) {
-      throw new Error(`lameta could not select ${wavName}.`);
-    }
+    await convertToStandardAudio(conn.api, conn.selectedFileName, onProgress);
   }
 
   // Grid toolbar "Setup Oral Annotation": create the combined

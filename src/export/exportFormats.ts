@@ -1,5 +1,6 @@
 import type { AnnotationSegment } from "../model/AnnotationSegment";
 import { t } from "../l10n";
+import type { OralAnnotationKind } from "../fs/OralAnnotationFiles";
 import { exportAudacityLabels } from "./audacity";
 import { exportCsv } from "./csv";
 import { exportFlexText, FLEX_TEXT_HAS_BOM, type FlexTextOptions } from "./flexText";
@@ -15,7 +16,59 @@ export interface ExportFile {
   mimeType: string;
   /** Write a UTF-8 byte order mark first (SayMore's `XElement.Save` does; `File.CreateText` does not). */
   bom: boolean;
+  /** The Save dialog's file types and the folder it remembers. */
+  save: SaveDialogSetup;
 }
+
+/** A file type in the Save dialog; extensions have no dot, and `"*"` means all files. */
+export interface SaveDialogFilter {
+  name: string;
+  extensions: string[];
+}
+
+/**
+ * What lameta's Save dialog needs for one kind of export. `rememberFolderKey` is
+ * the SayMore setting that holds that kind's last export folder, so each kind
+ * starts where SayMore's would: Audacity, Toolbox, FLEx and each audio kind
+ * have their own folder, and plain text, SRT and CSV share the general one.
+ */
+export interface SaveDialogSetup {
+  rememberFolderKey: string;
+  filters: SaveDialogFilter[];
+}
+
+export const GENERAL_EXPORT_FOLDER_KEY = "LastExportDestinationFolder";
+export const AUDACITY_EXPORT_FOLDER_KEY = "LastAudacityExportDestinationFolder";
+export const TOOLBOX_EXPORT_FOLDER_KEY = "LastToolboxExportDestinationFolder";
+export const FLEX_EXPORT_FOLDER_KEY = "LastFlexInterlinearExportDestinationFolder";
+export const CAREFUL_SPEECH_EXPORT_FOLDER_KEY = "LastCarefulSpeechExportDestinationFolder";
+export const ORAL_TRANSLATION_EXPORT_FOLDER_KEY = "LastOralTranslationExportDestinationFolder";
+
+/** The Save dialog for SayMore's Careful Speech / Oral Translation audio export, as mp3 or the WAV fallback. */
+export function audioExportSave(kind: OralAnnotationKind, extension: string): SaveDialogSetup {
+  return kind === "Careful"
+    ? saveSetup(
+        CAREFUL_SPEECH_EXPORT_FOLDER_KEY,
+        t("export.filter.careful", "Careful Speech File"),
+        extension,
+      )
+    : saveSetup(
+        ORAL_TRANSLATION_EXPORT_FOLDER_KEY,
+        t("export.filter.oralTranslation", "Oral Translation File"),
+        extension,
+      );
+}
+
+/** A Save dialog that remembers its folder under `rememberFolderKey` and offers one file type. */
+function saveSetup(
+  rememberFolderKey: string,
+  filterName: string,
+  extension: string,
+): SaveDialogSetup {
+  return { rememberFolderKey, filters: [{ name: filterName, extensions: [extension] }] };
+}
+
+const textFileName = () => t("export.filter.text", "Text File");
 
 /** What the exports need to know about the annotated session. */
 export interface ExportContext {
@@ -95,47 +148,77 @@ export function buildExport(
   ctx: ExportContext,
   flex?: Pick<FlexTextOptions, "transcriptionWs" | "freeTranslationWs">,
 ): ExportFile {
-  const plain = (name: string, text: string, mimeType = TEXT_MIME): ExportFile => ({
+  const plain = (
+    name: string,
+    text: string,
+    save: SaveDialogSetup,
+    mimeType = TEXT_MIME,
+  ): ExportFile => ({
     fileName: name,
     text,
     mimeType,
     bom: false,
+    save,
   });
+  const audacity = saveSetup(AUDACITY_EXPORT_FOLDER_KEY, textFileName(), "txt");
+  const srt = saveSetup(
+    GENERAL_EXPORT_FOLDER_KEY,
+    t("export.filter.srt", "SRT Subtitle File"),
+    "srt",
+  );
   switch (id) {
     case "audacityFreeTranslation":
       return plain(
         fileName(ctx, "audacity_freeTranslation", ".txt"),
         exportAudacityLabels(segments, "freeTranslation"),
+        audacity,
       );
     case "audacityTranscription":
       return plain(
         fileName(ctx, "audacity_transcription", ".txt"),
         exportAudacityLabels(segments, "transcription"),
+        audacity,
       );
     case "plainText":
-      return plain(fileName(ctx, "transcription", ".txt"), exportPlainText(segments));
+      return plain(
+        fileName(ctx, "transcription", ".txt"),
+        exportPlainText(segments),
+        saveSetup(GENERAL_EXPORT_FOLDER_KEY, textFileName(), "txt"),
+      );
     case "srtFreeTranslation":
       return plain(
         fileName(ctx, "freeTranslation_subtitle", ".srt"),
         exportSrt(segments, "freeTranslation"),
+        srt,
         "application/x-subrip;charset=utf-8",
       );
     case "srtTranscription":
       return plain(
         fileName(ctx, "transcription_subtitle", ".srt"),
         exportSrt(segments, "transcription"),
+        srt,
         "application/x-subrip;charset=utf-8",
       );
     case "csv":
       return plain(
         fileName(ctx, "transcription", ".csv"),
         exportCsv(segments),
+        saveSetup(
+          GENERAL_EXPORT_FOLDER_KEY,
+          t("export.filter.csv", "Comma Separated Values File"),
+          "csv",
+        ),
         "text/csv;charset=utf-8",
       );
     case "toolbox":
       return plain(
         fileName(ctx, "interlinear", ".txt"),
         exportToolbox(segments, ctx.sessionId, ctx.mediaFileName),
+        saveSetup(
+          TOOLBOX_EXPORT_FOLDER_KEY,
+          t("export.filter.toolbox", "Toolbox Standard Format File"),
+          "txt",
+        ),
       );
     case "flexInterlinear": {
       if (!flex) throw new Error("FLEx export needs writing systems.");
@@ -148,6 +231,13 @@ export function buildExport(
         }),
         mimeType: "application/xml;charset=utf-8",
         bom: FLEX_TEXT_HAS_BOM,
+        save: {
+          rememberFolderKey: FLEX_EXPORT_FOLDER_KEY,
+          filters: [
+            { name: t("export.filter.flex", "FLEx Interlinear"), extensions: ["flextext"] },
+            { name: t("export.filter.all", "All Files"), extensions: ["*"] },
+          ],
+        },
       };
     }
   }

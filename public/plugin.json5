@@ -8,7 +8,7 @@
   description: "SayMore-compatible audio annotation. ",
   author: "SIL Global",
 
-  permissions: ["companionFiles", "ffmpeg"],
+  permissions: ["companionFiles", "ffmpeg", "saveFile", "projectSettings"],
 
   // Tab-provider model (host ASKS the plugin): on every selection the host loads this entry
   // as a hidden provider and calls getTabs; the SPA (src/plugin/tabProvider.ts) answers LIVE

@@ -1,12 +1,14 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { makeObservable, observable, runInAction } from "mobx";
 import { SpyPlaybackEngine } from "../../audio/PlaybackEngine";
 import { InMemoryAdapter } from "../../fs/InMemoryAdapter";
 import { IGNORE_MARKER } from "../../model/IgnoreMarkers";
 import { makeTimeRange } from "../../model/TimeRange";
 import { AnnotationDocumentStore } from "../../state/AnnotationDocumentStore";
 import { gridPreferences } from "../../state/GridPreferences";
+import { gridFonts, type SettingsStorage } from "../../state/GridFonts";
 import { AUTOPLAY_DELAY_MS } from "../../state/GridViewModel";
 import type { ProjectStore } from "../../state/ProjectStore";
 import { SegmenterViewModel } from "../../state/SegmenterViewModel";
@@ -117,5 +119,136 @@ describe("TranscriptionGrid", () => {
     expect(gridPreferences.translationPlayback).toBe("both");
     gridPreferences.setTranscriptionPlayback("source");
     gridPreferences.setTranslationPlayback("translation");
+  });
+});
+
+/** The real engine's state is observable; the spy's is made so for the grid to follow it. */
+function observePlayback(playback: SpyPlaybackEngine): SpyPlaybackEngine {
+  return makeObservable(playback, {
+    isPlaying: observable,
+    isPaused: observable,
+    positionSec: observable,
+    clipUrl: observable,
+  });
+}
+
+function memorySettings(): SettingsStorage {
+  let value: unknown = null;
+  return {
+    read: async () => value,
+    write: async (v) => {
+      value = v;
+    },
+  };
+}
+
+describe("TranscriptionGrid: SayMore's first column", () => {
+  afterEach(() => cleanup());
+
+  it("draws the play button only on the current row", () => {
+    const { store } = makeStore(3);
+    render(<TranscriptionGrid store={store} />);
+    expect(screen.getAllByTitle("Play this segment")).toHaveLength(1);
+    expect(within(screen.getByTestId("grid-row-0")).getByTitle("Play this segment")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("segment-cell-2"));
+    expect(screen.getAllByTitle("Play this segment")).toHaveLength(1);
+    expect(within(screen.getByTestId("grid-row-2")).getByTitle("Play this segment")).toBeTruthy();
+  });
+
+  it("entering a row through its first cell autoplays it, and F2 there reaches the grid", async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, playback } = makeStore(3);
+      render(<TranscriptionGrid store={store} />);
+      const first = screen.getByTestId("segment-cell-2");
+      act(() => {
+        first.focus();
+        fireEvent.click(first);
+      });
+      expect(globalThis.document.activeElement).toBe(first);
+      await act(() => vi.advanceTimersByTimeAsync(AUTOPLAY_DELAY_MS));
+      expect(playback.calls.filter((c) => c.kind === "play").map((c) => c.range)).toEqual([
+        makeTimeRange(2, 3),
+      ]);
+      fireEvent.keyDown(first, { key: "F2" });
+      expect(playback.isPlaying).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the segment's time range as the tooltip, with how to play on the current row", () => {
+    const { store } = makeStore(3);
+    render(<TranscriptionGrid store={store} />);
+    expect(screen.getByTestId("segment-cell-1").getAttribute("title")).toBe("01.0 - 02.0");
+    expect(screen.getByTestId("segment-cell-0").getAttribute("title")).toBe(
+      "Segment range: 00.0 - 01.0\nPress F2 to Play/Pause",
+    );
+  });
+
+  it("fills the current row's first cell as far as playback has got into the segment", async () => {
+    const { store, playback } = makeStore(3);
+    observePlayback(playback);
+    render(<TranscriptionGrid store={store} />);
+    fireEvent.click(screen.getByTestId("segment-cell-1"));
+    expect(screen.queryByTestId("playback-progress")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Play this segment"));
+    });
+    expect(playback.isPlaying).toBe(true);
+    const width = () =>
+      within(screen.getByTestId("segment-cell-1")).getByTestId("playback-progress").style.width;
+    act(() => runInAction(() => (playback.positionSec = 1.25)));
+    expect(width()).toBe("25%");
+    act(() => runInAction(() => (playback.positionSec = 1.75)));
+    expect(width()).toBe("75%");
+
+    // Paused playback keeps its fill; stopping removes it.
+    act(() => playback.pause());
+    expect(width()).toBe("75%");
+    act(() => playback.stop());
+    expect(screen.queryByTestId("playback-progress")).toBeNull();
+  });
+});
+
+describe("TranscriptionGrid: column fonts", () => {
+  afterEach(async () => {
+    cleanup();
+    await gridFonts.setFont("transcription", undefined);
+    await gridFonts.setFont("freeTranslation", undefined);
+  });
+
+  it("applies each column's font to its cells", async () => {
+    await gridFonts.useStorage(memorySettings());
+    await gridFonts.setFont("transcription", { family: "Charis SIL", sizePt: 14, bold: true });
+    const { store } = makeStore(2, [1]);
+    render(<TranscriptionGrid store={store} />);
+    const input = cell(0, "transcription") as HTMLInputElement;
+    expect(input.style.fontFamily).toContain("Charis SIL");
+    expect(input.style.fontSize).toBe("14pt");
+    expect(input.style.fontWeight).toBe("700");
+    expect(cell(1, "transcription").style.fontFamily).toContain("Charis SIL");
+    expect(cell(0, "freeTranslation").style.fontFamily).toBe("");
+  });
+
+  it("Options > Fonts... sets the column's font and stores it with the project", async () => {
+    const storage = memorySettings();
+    await gridFonts.useStorage(storage);
+    const { store } = makeStore(2);
+    render(<TranscriptionGrid store={store} />);
+    fireEvent.click(screen.getByTestId("translation-options"));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Fonts\.\.\./ }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Font"), { target: { value: "Andika" } });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "OK" }));
+    });
+    expect(gridFonts.freeTranslation).toEqual({ family: "Andika", sizePt: 10 });
+    expect(await storage.read()).toEqual({
+      version: 1,
+      freeTranslationFont: { family: "Andika", sizePt: 10 },
+    });
+    expect(cell(0, "freeTranslation").style.fontFamily).toContain("Andika");
   });
 });

@@ -4,6 +4,9 @@ import { ORAL_ANNOTATIONS_WAV_SUFFIX } from "../model/SayMoreConstants";
 import type { PluginCompanionsApiV1, TabDescriptor } from "./PluginApiTypes";
 import type { TabProviderQuery } from "./lametaPluginClient";
 
+/** The id of the "Start Annotating" tab an Audio/Video file with no `.eaf` gets. */
+export const START_TAB_ID = "start";
+
 /** Inputs the pure tab policy needs about the currently-selected file. */
 export interface TabQuery {
   /** Lowercase extension without the dot, e.g. "wav", "eaf". */
@@ -57,7 +60,7 @@ export function computeTabs(query: TabQuery): TabDescriptor[] {
   if (query.lametaType === "Audio" || query.lametaType === "Video") {
     return query.hasAnnotationsEaf
       ? []
-      : [{ id: "start", label: t("tab.start", "Start Annotating") }];
+      : [{ id: START_TAB_ID, label: t("tab.start", "Start Annotating") }];
   }
   return [];
 }

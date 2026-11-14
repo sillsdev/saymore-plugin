@@ -1,21 +1,21 @@
 // Build the SPA and zip it into one `.lmplug` per platform, each with its own ffmpeg:
 //
-//   saymore-audio-win-x64.lmplug   dist/ + bin/ffmpeg.exe
-//   saymore-audio-mac.lmplug       dist/ + bin/ffmpeg (universal) for Apple Silicon and Intel
+//   saymore-audio-win-x64.lmplug   dist/ + bin/win32-x64/ffmpeg.exe
+//   saymore-audio-mac.lmplug       dist/ + bin/darwin-arm64/ffmpeg + bin/darwin-x64/ffmpeg
 //
 // Usage:
 //   node scripts/package-plugin.mjs                 # vp build, then both packages
 //   node scripts/package-plugin.mjs --target win    # only the Windows package (or: mac)
 //   node scripts/package-plugin.mjs --no-build      # reuse an existing dist/
 //
-// The ffmpeg binaries are the ones the ffmpeg-ffprobe-static devDependency downloads from its
-// GitHub release (the same build lameta ships). Only ffmpeg is bundled; lameta supplies ffprobe.
+// The ffmpeg binaries come from a release of the ffmpeg-ffprobe-static project (the same build
+// lameta ships), downloaded once and cached. Only ffmpeg is bundled; lameta supplies ffprobe.
+// lameta makes the binary executable before it runs it, so the zip needs no Unix modes.
 // For the live dev loop you don't need this at all: run `vp build --watch` and point lameta's
 // "Developer plugin folder" at dist/.
 
 import { execFileSync } from "node:child_process";
 import {
-  chmodSync,
   copyFileSync,
   cpSync,
   existsSync,
@@ -27,39 +27,29 @@ import {
   writeFileSync,
 } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, join, relative, resolve } from "node:path";
-import { createRequire } from "node:module";
-import { crc32, deflateRawSync } from "node:zlib";
-import { PACKAGES, manifestForPackage } from "./packageManifest.mjs";
+import { dirname, join, resolve } from "node:path";
+import { PACKAGES, ffmpegPath, manifestForPackage } from "./packageManifest.mjs";
+
+const RELEASE_TAG = "b6.1.2-rc.1";
+const FFMPEG_VERSION = "n6.1.2";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = join(repoRoot, "dist");
 const cacheDir = join(repoRoot, "node_modules", ".cache", "saymore-packaging");
-const require = createRequire(import.meta.url);
 
 const args = process.argv.slice(2);
 const skipBuild = args.includes("--no-build");
 const targetArg = args.includes("--target") ? args[args.indexOf("--target") + 1] : "all";
-const targets = targetArg === "all" ? ["win", "mac"] : [targetArg];
+const targets = targetArg === "all" ? Object.keys(PACKAGES) : [targetArg];
 for (const t of targets) {
-  if (!["win", "mac"].includes(t)) throw new Error(`Unknown --target ${t}; use win, mac or all.`);
+  if (!PACKAGES[t]) throw new Error(`Unknown --target ${t}; use win, mac or all.`);
 }
 
-const ffmpegPackageDir = dirname(require.resolve("ffmpeg-ffprobe-static/package.json"));
-const releaseTag = JSON.parse(readFileSync(join(ffmpegPackageDir, "package.json"), "utf8"))[
-  "ffmpeg-static"
-]["binary-release-tag"];
-
-/** The ffmpeg binary for one platform-arch, e.g. ("win32", "x64"); cached between runs. */
-async function ffmpegBinary(platform, arch) {
-  const ext = platform === "win32" ? ".exe" : "";
-  const installed = join(ffmpegPackageDir, `ffmpeg${ext}`);
-  if (process.platform === platform && process.arch === arch && existsSync(installed)) {
-    return installed;
-  }
-  const cached = join(cacheDir, releaseTag, `ffmpeg-${platform}-${arch}${ext}`);
+/** The ffmpeg binary for one platform key, e.g. "win32-x64"; cached between runs. */
+async function ffmpegBinary(platformKey) {
+  const cached = join(cacheDir, RELEASE_TAG, `ffmpeg-${platformKey}`);
   if (existsSync(cached)) return cached;
-  const url = `https://github.com/descriptinc/ffmpeg-ffprobe-static/releases/download/${releaseTag}/ffmpeg-${platform}-${arch}`;
+  const url = `https://github.com/descriptinc/ffmpeg-ffprobe-static/releases/download/${RELEASE_TAG}/ffmpeg-${platformKey}`;
   console.log(`> download ${url}`);
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not download ${url}: ${response.status}`);
@@ -68,80 +58,38 @@ async function ffmpegBinary(platform, arch) {
   return cached;
 }
 
-function haveLipo() {
-  try {
-    execFileSync("lipo", ["-info", process.execPath], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function ffmpegVersionLine(binary) {
-  try {
-    return execFileSync(binary, ["-version"], { encoding: "utf8" }).split(/\r?\n/)[0];
-  } catch {
-    return "ffmpeg 6.1.x";
-  }
-}
-
-function thirdPartyNote(versionLine) {
-  return `Third-party software in this package
+const thirdPartyNote = `Third-party software in this package
 =====================================
 
 This package includes ffmpeg, in the bin/ folder, so the plugin can convert audio.
 
   Program:  FFmpeg (https://ffmpeg.org)
-  Version:  ${versionLine}
+  Version:  FFmpeg ${FFMPEG_VERSION}
   Build:    static GPLv3 build (configured with --enable-gpl --enable-version3), from the
-            ffmpeg-ffprobe-static project, release ${releaseTag}:
-            https://github.com/descriptinc/ffmpeg-ffprobe-static/releases/tag/${releaseTag}
+            ffmpeg-ffprobe-static project, release ${RELEASE_TAG}:
+            https://github.com/descriptinc/ffmpeg-ffprobe-static/releases/tag/${RELEASE_TAG}
   License:  GNU General Public License version 3. FFMPEG-LICENSE.md is FFmpeg's own
             account of its licensing, and COPYING.GPLv3 is the full license text.
-  Source:   FFmpeg source code: https://ffmpeg.org/download.html (the version above is the
-            release tag n6.1.2). The build scripts and the origin of each binary:
+  Source:   FFmpeg source code: https://ffmpeg.org/download.html (release tag
+            ${FFMPEG_VERSION}). The build scripts and the origin of each binary:
             https://github.com/descriptinc/ffmpeg-ffprobe-static
 
 ffmpeg runs as a separate program. The plugin's own code is MIT licensed (see the plugin's
 repository, https://github.com/sillsdev/saymore-plugin).
 `;
-}
 
-/** Stage dist/ plus the platform's binaries; returns the staging dir and the package definition. */
-async function stage(target) {
-  let pkg = PACKAGES[target];
-  const stageDir = join(cacheDir, "stage", target);
+/** Stage dist/ plus the package's binaries and license files; returns the staging dir. */
+async function stage(pkg, name) {
+  const stageDir = join(cacheDir, "stage", name);
   rmSync(stageDir, { recursive: true, force: true });
   cpSync(distDir, stageDir, { recursive: true });
-  mkdirSync(join(stageDir, "bin"), { recursive: true });
 
-  let versionBinary;
-  if (target === "win") {
-    const win = await ffmpegBinary("win32", "x64");
-    copyFileSync(win, join(stageDir, "bin", "ffmpeg.exe"));
-    versionBinary = process.platform === "win32" ? win : undefined;
-  } else {
-    const arm = await ffmpegBinary("darwin", "arm64");
-    const x64 = await ffmpegBinary("darwin", "x64");
-    if (haveLipo()) {
-      const out = join(stageDir, "bin", "ffmpeg");
-      execFileSync("lipo", ["-create", arm, x64, "-output", out]);
-      chmodSync(out, 0o755);
-      console.log("  mac: universal ffmpeg made with lipo");
-    } else {
-      pkg = PACKAGES.macSeparate;
-      for (const [arch, src] of [
-        ["arm64", arm],
-        ["x64", x64],
-      ]) {
-        mkdirSync(join(stageDir, "bin", `darwin-${arch}`), { recursive: true });
-        copyFileSync(src, join(stageDir, "bin", `darwin-${arch}`, "ffmpeg"));
-      }
-      console.log(
-        "  mac: lipo not available, bundling bin/darwin-arm64/ffmpeg and bin/darwin-x64/ffmpeg",
-      );
-    }
-  }
+  const binaries = await Promise.all(pkg.platforms.map(ffmpegBinary));
+  pkg.platforms.forEach((platformKey, i) => {
+    const dest = join(stageDir, ffmpegPath(platformKey));
+    mkdirSync(dirname(dest), { recursive: true });
+    copyFileSync(binaries[i], dest);
+  });
 
   const sourceManifest = readFileSync(join(repoRoot, "public", "plugin.json5"), "utf8");
   writeFileSync(join(stageDir, "plugin.json5"), manifestForPackage(sourceManifest, pkg));
@@ -151,71 +99,24 @@ async function stage(target) {
   const licenses = join(repoRoot, "licenses", "ffmpeg");
   copyFileSync(join(licenses, "LICENSE.md"), join(stageDir, "FFMPEG-LICENSE.md"));
   copyFileSync(join(licenses, "COPYING.GPLv3"), join(stageDir, "COPYING.GPLv3"));
-  const versionLine = versionBinary
-    ? ffmpegVersionLine(versionBinary)
-    : `FFmpeg n6.1.2 (build from ffmpeg-ffprobe-static ${releaseTag})`;
-  writeFileSync(join(stageDir, "THIRD-PARTY.txt"), thirdPartyNote(versionLine));
-  return { stageDir, pkg };
+  writeFileSync(join(stageDir, "THIRD-PARTY.txt"), thirdPartyNote);
+  return stageDir;
 }
 
-function listFiles(dir) {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory() ? listFiles(join(dir, e.name)) : [join(dir, e.name)],
-  );
-}
-
-/** Writes a zip with forward-slash names and unix modes (so bin/ffmpeg stays executable). */
-function writeZip(outFile, baseDir) {
-  const chunks = [];
-  const central = [];
-  let offset = 0;
-  const executable = (name) => name === "bin/ffmpeg" || /^bin\/[^/]+\/ffmpeg$/.test(name);
-  for (const file of listFiles(baseDir)) {
-    const name = relative(baseDir, file).split("\\").join("/");
-    const data = readFileSync(file);
-    const packed = deflateRawSync(data, { level: 9 });
-    const nameBuf = Buffer.from(name, "utf8");
-    const crc = crc32(data);
-    const header = Buffer.alloc(30);
-    header.writeUInt32LE(0x04034b50, 0);
-    header.writeUInt16LE(20, 4);
-    header.writeUInt16LE(0x0800, 6); // UTF-8 names
-    header.writeUInt16LE(8, 8); // deflate
-    header.writeUInt16LE(0, 10);
-    header.writeUInt16LE(0x21, 12); // 1980-01-01
-    header.writeUInt32LE(crc, 14);
-    header.writeUInt32LE(packed.length, 18);
-    header.writeUInt32LE(data.length, 22);
-    header.writeUInt16LE(nameBuf.length, 26);
-    chunks.push(header, nameBuf, packed);
-
-    const mode = executable(name) ? 0o100755 : 0o100644;
-    const entry = Buffer.alloc(46);
-    entry.writeUInt32LE(0x02014b50, 0);
-    entry.writeUInt16LE((3 << 8) | 20, 4); // made by unix
-    entry.writeUInt16LE(20, 6);
-    entry.writeUInt16LE(0x0800, 8);
-    entry.writeUInt16LE(8, 10);
-    entry.writeUInt16LE(0, 12);
-    entry.writeUInt16LE(0x21, 14);
-    entry.writeUInt32LE(crc, 16);
-    entry.writeUInt32LE(packed.length, 20);
-    entry.writeUInt32LE(data.length, 24);
-    entry.writeUInt16LE(nameBuf.length, 28);
-    entry.writeUInt32LE((mode << 16) >>> 0, 38);
-    entry.writeUInt32LE(offset, 42);
-    central.push(entry, nameBuf);
-    offset += header.length + nameBuf.length + packed.length;
+/** Zips the contents of `dir` (not the folder itself) with forward-slash entry names. */
+function zipFolder(outFile, dir) {
+  const entries = readdirSync(dir);
+  if (process.platform === "win32") {
+    // Windows ships bsdtar as tar.exe; it writes spec-compliant forward-slash zip entries
+    // (PowerShell's Compress-Archive writes backslashes, which strict unzippers reject). The
+    // absolute System32 path avoids a GNU `tar` earlier on PATH (e.g. Git's), which has no zip.
+    const bsdtar = join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
+    execFileSync(bsdtar, ["--format", "zip", "-c", "-f", outFile, "-C", dir, ...entries], {
+      stdio: "inherit",
+    });
+  } else {
+    execFileSync("zip", ["-r", "-q", outFile, ...entries], { cwd: dir, stdio: "inherit" });
   }
-  const centralBuf = Buffer.concat(central);
-  const count = central.length / 2;
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(count, 8);
-  end.writeUInt16LE(count, 10);
-  end.writeUInt32LE(centralBuf.length, 12);
-  end.writeUInt32LE(offset, 16);
-  writeFileSync(outFile, Buffer.concat([...chunks, centralBuf, end]));
 }
 
 if (!skipBuild) {
@@ -227,10 +128,11 @@ if (!existsSync(join(distDir, "plugin.json5"))) {
   throw new Error(`No dist/plugin.json5. Run \`vp build\` first (or drop --no-build).`);
 }
 
-for (const target of targets) {
-  const { stageDir, pkg } = await stage(target);
+for (const name of targets) {
+  const pkg = PACKAGES[name];
+  const stageDir = await stage(pkg, name);
   const outFile = join(repoRoot, pkg.file);
   rmSync(outFile, { force: true });
-  writeZip(outFile, stageDir);
+  zipFolder(outFile, stageDir);
   console.log(`Wrote ${outFile} (${(statSync(outFile).size / 1024 / 1024).toFixed(1)} MB)`);
 }

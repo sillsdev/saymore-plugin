@@ -41,7 +41,6 @@
     "@typescript/native-preview": "7.0.0-dev.20260509.2",
     "@vitejs/plugin-react": "^6.0.3",
     "bumpp": "^11.1.0",
-    "ffmpeg-ffprobe-static": "6.1.2-rc.1",
     "happy-dom": "^15.11.7",
     "typescript": "^6.0.3",
     "vite": "catalog:",

@@ -27,6 +27,16 @@ export class AnnotationDocumentStore {
   /** The version last written to disk; dirty when `version !== savedVersion`. */
   savedVersion = 0;
 
+  /**
+   * While true, {@link save} writes nothing: an external edit of the file is waiting on
+   * the user's Reload / Keep mine choice, and a write would overwrite it.
+   */
+  holdWrites = false;
+  /** Modification time of the last write this store made, for telling its own writes from external ones. */
+  lastOwnWriteMs: number | undefined = undefined;
+  /** Writes currently in flight. */
+  savesInFlight = 0;
+
   /** The preserved EAF document (DOM + read-view), edited only on save. */
   private eaf: EafDocument | undefined;
 
@@ -55,8 +65,26 @@ export class AnnotationDocumentStore {
     this.savedVersion = 0;
   }
 
+  /**
+   * Replace the segments with those of `eafXml` (the file as changed outside this
+   * plugin), leaving the document clean. `version` still advances so views keyed on it
+   * re-render their cells.
+   */
+  reloadFrom(eafXml: string): void {
+    this.eaf = loadEaf(eafXml);
+    this.tiers.replaceAll(this.eaf.segments);
+    this.version++;
+    this.savedVersion = this.version;
+    this.holdWrites = false;
+  }
+
   bumpVersion(): void {
     this.version++;
+  }
+
+  /** The languages the Transcription and Phrase Free Translation tiers declare. */
+  tierLanguages(): { transcription?: string; freeTranslation?: string } {
+    return this.eaf?.tierLanguages() ?? {};
   }
 
   /** Serialize the current segments back onto the preserved DOM. */
@@ -68,10 +96,24 @@ export class AnnotationDocumentStore {
 
   /** Write the EAF beside the media through the adapter and mark clean. */
   async save(adapter: FileSystemAdapter): Promise<void> {
+    if (this.holdWrites) return;
     const xml = this.serialize();
-    await adapter.writeText(annotationsEafName(this.mediaFileName), xml);
+    const savedVersion = this.version;
+    const name = annotationsEafName(this.mediaFileName);
     runInAction(() => {
-      this.savedVersion = this.version;
+      this.savesInFlight++;
     });
+    try {
+      await adapter.writeText(name, xml);
+      const ms = await adapter.getModifiedMs(name);
+      runInAction(() => {
+        this.lastOwnWriteMs = ms;
+        this.savedVersion = savedVersion;
+      });
+    } finally {
+      runInAction(() => {
+        this.savesInFlight--;
+      });
+    }
   }
 }

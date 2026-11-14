@@ -8,6 +8,7 @@ import { computeEnvelope } from "../audio/envelope";
 import { MediaElementPlaybackEngine, createAudioElement } from "../audio/PlaybackEngine";
 import { AnnotationDocumentStore } from "./AnnotationDocumentStore";
 import { SegmenterViewModel } from "./SegmenterViewModel";
+import { ExternalChangeWatcher } from "./ExternalChangeWatcher";
 import { RecorderViewModel } from "./recorder/RecorderViewModel";
 import { RecordingFileStore } from "./recorder/RecordingFileStore";
 import { combinedOralWavName, regenerateCombinedOralWav } from "./recorder/combinedWav";
@@ -17,6 +18,8 @@ import { SpyRecorder, type RecorderService } from "../audio/recording/Recorder";
 import { MicRecorder } from "../audio/recording/MicRecorder";
 import type { OralAnnotationsSource } from "../audio/oralAnnotationsWav";
 import { autoSegmentToEaf, buildAutoSegmentedEafXml } from "../audio/autoSegmentToEaf";
+import type { LabelTextTier } from "../import/audacityLabels";
+import { createEafFromChosenFile } from "../import/createFromFile";
 
 /** Which view the Annotations pane shows (plugin + harness UI; Track C consumes). */
 export type AnnotationsView = "grid" | "segmenter" | "recorder-careful" | "recorder-translation";
@@ -63,10 +66,15 @@ export class ProjectStore {
 
   adapter: FileSystemAdapter | undefined = undefined;
   mediaFileName = "";
+  /** Absolute path of the session folder when a host supplies it; its last part is SayMore's session id in export file names. */
+  sessionDirectory = "";
   mediaUrl: string | undefined = undefined;
   envelope: Envelope | undefined = undefined;
   document: AnnotationDocumentStore | undefined = undefined;
   segmenter: SegmenterViewModel | undefined = undefined;
+
+  /** Watches the `.eaf` for changes made by other programs; absent in single-file mode. */
+  externalChange: ExternalChangeWatcher | undefined = undefined;
 
   /** Shared oral-annotation index (segmenter + recorder use the same instance). */
   oralIndex: OralAnnotationIndex | undefined = undefined;
@@ -235,6 +243,7 @@ export class ProjectStore {
         this.loading = false;
         this.loadPhase = "reading";
       });
+      this.watchForExternalChanges(singleFile);
 
       // B — read the media bytes (attach the source for playback) then decode the waveform,
       // all in the background; `openSession` has already resolved.
@@ -325,6 +334,27 @@ export class ProjectStore {
       // decision). The segmenter/recorders are reached from the grid's toolbar.
       this.annotationsView = "grid";
     });
+    this.watchForExternalChanges(this.singleFileMode);
+  }
+
+  /** Start watching the loaded `.eaf` for outside edits (see {@link ExternalChangeWatcher}). */
+  private watchForExternalChanges(singleFile: boolean): void {
+    this.externalChange?.dispose();
+    const { adapter, document, segmenter } = this;
+    this.externalChange =
+      singleFile || !adapter || !document
+        ? undefined
+        : new ExternalChangeWatcher({
+            adapter,
+            document,
+            segmenter,
+            onReloaded: async () => {
+              const exists = await adapter.exists(combinedOralWavName(this.mediaFileName));
+              runInAction(() => {
+                this.combinedWavExists = exists;
+              });
+            },
+          });
   }
 
   // ── Annotations-pane view (grid / segmenter / recorder) ─────────────────────
@@ -355,6 +385,9 @@ export class ProjectStore {
     // its next open, so no regen is owed here.
     this.disposeOralViewer();
     this.disposeRecorder();
+    // A recording is named by its segment's current boundaries, so a later segmenter
+    // undo must not move those boundaries away from it.
+    this.segmenter?.undoStack.dropHistory();
     void this.buildRecorder(kind);
   }
 
@@ -365,9 +398,7 @@ export class ProjectStore {
     const store = await RecordingFileStore.build(this.adapter, oralIndex, this.mediaFileName);
     // Share the session's source-media element (its `src` attaches when the background read
     // finishes) so the recorder tab renders now instead of waiting on the media read.
-    const playback = new MediaElementPlaybackEngine(
-      this.sourceMediaEl ?? this.mediaUrl ?? "",
-    );
+    const playback = new MediaElementPlaybackEngine(this.sourceMediaEl ?? this.mediaUrl ?? "");
     const vm = new RecorderViewModel({
       kind,
       document,
@@ -534,9 +565,32 @@ export class ProjectStore {
     await this.buildSegmenter(await adapter.readText(eafRel));
   }
 
+  /**
+   * Start Annotating → "Copy an existing ELAN file" / "Import an Audacity Label file"
+   * (standalone). Write `<media>.annotations.eaf` from the chosen file's text, then build
+   * the session over it.
+   */
+  async startAnnotatingFromFile(fileText: string, tier: LabelTextTier): Promise<void> {
+    const adapter = this.adapter;
+    if (!adapter) throw new Error("ProjectStore: no media loaded.");
+    const eafRel = await createEafFromChosenFile({
+      adapter,
+      mediaFileName: this.mediaFileName,
+      fileText,
+      tier,
+      getMediaDurationSec: async () => {
+        if (!this.envelope) throw new Error("ProjectStore: media not loaded.");
+        return this.envelope.durationSec;
+      },
+    });
+    await this.buildSegmenter(await adapter.readText(eafRel));
+  }
+
   private reset(): void {
     // Abandon any background envelope decode still running for the previous session.
     this.loadSeq++;
+    this.externalChange?.dispose();
+    this.externalChange = undefined;
     this.disposeRecorder();
     this.disposeOralViewer();
     this.segmenter?.dispose();

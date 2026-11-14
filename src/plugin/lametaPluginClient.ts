@@ -1,199 +1,267 @@
-// VENDORED from lameta: src/plugins/client/lametaPluginClient.ts.
+// VENDORED from lameta: src/plugins/client/lametaPluginClient.ts. Local changes: import path, no `any`, `lameta:ready` retried every 150ms.
+// lameta plugin client kit (canonical TypeScript source).
 //
-// The small, dependency-free helper a plugin runs INSIDE its iframe to talk to
-// lameta. Adapted only to (a) import PluginApiTypes from the co-located vendored
-// copy and (b) avoid `any` so it passes this repo's type-aware lint. Behaviour is
-// identical to the canonical source.
+// This is the ~small, dependency-free helper a plugin runs INSIDE its iframe to talk to
+// lameta. For now plugins vendor a copy of this (see example-plugins/.../lametaPluginClient.js);
+// eventually this ships as part of the `@lameta/plugin-api` package. Keep it dependency-free
+// and framework-free.
 //
-// Usage:
-//   import { connectToLameta } from "./lametaPluginClient";
+// Two entry points:
+//   connectToLameta()        — for a CONTENT TAB iframe; returns { context, api }.
+//   connectAsTabProvider(fn)  — for the hidden TAB-PROVIDER iframe; lameta calls fn() on every
+//                               selection change to ask which tabs to show.
+//
+// Usage inside a content tab:
+//   import { connectToLameta } from "./lametaPluginClient.js";
 //   const { context, api } = await connectToLameta();
+//   const bytes = await api.getFileBytes();
+//   await api.writeSidecar(JSON.stringify(data));   // debounce your writes!
 //
-// Your iframe is created fresh for each file and destroyed on file change / tab
-// switch (and, in dev, whenever you edit your source). There are no
-// "selection changed" events — persist eagerly (debounced) and restore state from
-// readSidecar()/companions on connect so hot-reload is loss-free.
+// Usage inside the tab provider (a hidden page lameta loads once per plugin):
+//   import { connectAsTabProvider } from "./lametaPluginClient.js";
+//   await connectAsTabProvider(async ({ file, folder, api }) => {
+//     if (file.lametaType === "Audio") {
+//       const hasEaf = await api.companions.exists(file.name + ".annotations.eaf");
+//       return hasEaf ? [] : [{ id: "start", label: "Start Annotating" }];
+//     }
+//     if (file.extension === "eaf")
+//       return [{ id: "segments", label: "Segments", claimDefault: true }];
+//     return [];
+//   });
+//
+// IMPORTANT for content-tab authors: your iframe is created fresh for each file and destroyed on
+// file change / tab switch (and, during development, whenever you edit your source). There
+// are no "selection changed" events. So persist eagerly (debounced) and restore your state
+// from readSidecar() on connect — that makes hot-reload loss-free.
 
 import type {
-  FfprobeResult,
   PluginGetTabsMessage,
   PluginHostApiV1,
   PluginInitContext,
+  PluginInitMessage,
   PluginProgressMessage,
   PluginResponseMessage,
+  PluginTabProviderContext,
   TabDescriptor,
-  TabProviderQuery,
 } from "./PluginApiTypes";
 
 export interface LametaConnection {
-  context: PluginInitContext;
+  /** For a content tab this is a PluginInitContext (`role:"tab"`, with `file`/`folder`/`tab`).
+   * For the hidden tab-provider iframe it is a PluginTabProviderContext (`role:"tabProvider"`).
+   * Branch on `context.role` — one shared `entry` can serve both. */
+  context: PluginInitContext | PluginTabProviderContext;
   api: PluginHostApiV1;
 }
 
-interface PendingEntry {
-  resolve: (value: unknown) => void;
-  reject: (error: unknown) => void;
+/** The query a tab provider's handler receives on each selection change. */
+export interface TabProviderQuery {
+  file: {
+    name: string;
+    extension: string;
+    mimeType: string;
+    lametaType: string;
+    path: string;
+    uri: string;
+  };
+  folder: { type: string; directory: string };
+  /** The same scoped host API as a content tab, but scoped to THIS query's file — so
+   * `api.companions.exists("<media>.annotations.eaf")` answers for the file being queried. */
+  api: PluginHostApiV1;
 }
 
+export type TabProviderHandler = (
+  query: TabProviderQuery,
+) => TabDescriptor[] | Promise<TabDescriptor[]>;
+
+// Shared plumbing: a pending-response map + a `request()` and the typed `api` built on it.
+function makeApiPlumbing() {
+  let nextId = 1;
+  const pending = new Map<
+    number,
+    { resolve: (v: unknown) => void; reject: (e: unknown) => void }
+  >();
+  // onProgress callbacks are functions (not serializable), so they never cross the wire —
+  // the client stashes them by request id and invokes them on `lameta:progress`.
+  const progress = new Map<number, (fraction: number) => void>();
+
+  function handleResponse(data: PluginResponseMessage) {
+    const entry = pending.get(data.id);
+    progress.delete(data.id); // the response is terminal: drop any progress cb for this id
+    if (!entry) return;
+    pending.delete(data.id);
+    if (data.error !== undefined && data.error !== null) entry.reject(new Error(data.error));
+    else entry.resolve(data.result);
+  }
+
+  function handleProgress(data: PluginProgressMessage) {
+    const cb = progress.get(data.id);
+    if (!cb) return;
+    try {
+      cb(data.fraction);
+    } catch {
+      // a throwing progress callback must never break the message loop
+    }
+  }
+
+  function request<T>(
+    method: string,
+    params: unknown[],
+    transfer?: Transferable[],
+    onProgress?: (fraction: number) => void,
+  ): Promise<T> {
+    const id = nextId++;
+    if (onProgress) progress.set(id, onProgress);
+    return new Promise<T>((res, rej) => {
+      pending.set(id, { resolve: res as (v: unknown) => void, reject: rej });
+      const message = { type: "lameta:request", id, method, params };
+      if (transfer && transfer.length) window.parent.postMessage(message, "*", transfer);
+      else window.parent.postMessage(message, "*");
+    });
+  }
+
+  const api: PluginHostApiV1 = {
+    getFileBytes: () => request("getFileBytes", []),
+    readFileRange: (offset: number, length: number) => request("readFileRange", [offset, length]),
+    readSidecar: (name?: string) => request("readSidecar", [name]),
+    writeSidecar: (contents: string, name?: string) => request("writeSidecar", [contents, name]),
+    listSidecars: () => request("listSidecars", []),
+    selectFile: (relPath: string) => request("selectFile", [relPath]),
+    companions: {
+      list: (subdir?: string) => request("companions.list", [subdir]),
+      exists: (relPath: string) => request("companions.exists", [relPath]),
+      readText: (relPath: string) => request("companions.readText", [relPath]),
+      readBytes: (relPath: string) => request("companions.readBytes", [relPath]),
+      writeText: (relPath: string, contents: string) =>
+        request("companions.writeText", [relPath, contents]),
+      writeBytes: (relPath: string, data: ArrayBuffer) =>
+        request("companions.writeBytes", [relPath, data], [data]),
+      rename: (fromRelPath: string, toRelPath: string) =>
+        request("companions.rename", [fromRelPath, toRelPath]),
+      delete: (relPath: string) => request("companions.delete", [relPath]),
+      stat: (relPath: string) => request("companions.stat", [relPath]),
+    },
+    ffmpeg: {
+      probe: (relPath?: string) => request("ffmpeg.probe", [relPath]),
+      run: (spec: {
+        inputRelPath?: string;
+        outputRelPath: string;
+        args: string[];
+        inputArgs?: string[];
+        onProgress?: (fraction: number) => void;
+      }) => {
+        // onProgress isn't serializable: keep it client-side and send only the rest.
+        const { onProgress, ...params } = spec;
+        return request("ffmpeg.run", [params], undefined, onProgress);
+      },
+    },
+  };
+
+  return { api, handleResponse, handleProgress };
+}
+
+// The tab-provider handler, registered via serveTabProvider(). Because one shared `entry` can be
+// loaded as EITHER a content tab or the hidden provider, a plugin connects first, learns its role
+// from `context.role`, and (if "tabProvider") registers a handler — which the same message loop
+// invokes on each `lameta:getTabs`.
+let tabProviderHandler: TabProviderHandler | null = null;
+
+/**
+ * Register the handler lameta calls (on EVERY selection change, uncached) to ask which tabs to
+ * show. Call it from the `role === "tabProvider"` branch after `connectToLameta()`. The handler
+ * must recompute live (e.g. `await api.companions.exists(...)`); its companions.* calls are scoped
+ * to the file being queried.
+ */
+export function serveTabProvider(handler: TabProviderHandler): void {
+  tabProviderHandler = handler;
+}
+
+/**
+ * Connect this iframe to lameta and resolve with `{ context, api }`. Works for BOTH roles:
+ *   const { context, api } = await connectToLameta();
+ *   if (context.role === "tabProvider") serveTabProvider(myHandler);   // hidden provider iframe
+ *   else renderMyTab(context, api);                                    // content tab iframe
+ * The message loop stays alive after connecting to service API responses and (for a provider)
+ * `lameta:getTabs` queries.
+ */
 export function connectToLameta(timeoutMs = 10000): Promise<LametaConnection> {
-  return new Promise<LametaConnection>((resolve, reject) => {
-    let nextId = 1;
-    const pending = new Map<number, PendingEntry>();
-    // Per-request progress callbacks (e.g. ffmpeg.run), invoked on `lameta:progress`
-    // and dropped when the request's `lameta:response` arrives. Kept client-side only —
-    // the callback itself never crosses postMessage.
-    const progress = new Map<number, (fraction: number) => void>();
+  return new Promise((resolve, reject) => {
+    const { api, handleResponse, handleProgress } = makeApiPlumbing();
+    let connected = false;
 
-    // Re-announce readiness on an interval until the host answers. A one-shot
-    // `lameta:ready` races the host wiring up its listener — a fast file:// iframe
-    // can post before the host is ready, the message is dropped, and we time out
-    // for nothing. Retrying (host makes init idempotent) closes the race from both
-    // sides. Both timers are cleared the instant `lameta:init` arrives.
-    let initTimer: ReturnType<typeof setTimeout> | null = null;
+    // Re-announce readiness every 150ms until init arrives: a one-shot `lameta:ready` can be
+    // posted before the host's listener exists and be lost.
     let readyTimer: ReturnType<typeof setInterval> | null = null;
-    function stopTimers(): void {
-      if (initTimer) {
-        clearTimeout(initTimer);
-        initTimer = null;
-      }
-      if (readyTimer) {
-        clearInterval(readyTimer);
+    let initTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      if (!connected) {
+        if (readyTimer) clearInterval(readyTimer);
         readyTimer = null;
+        window.removeEventListener("message", onMessage);
+        reject(new Error("Timed out waiting for lameta:init from host"));
       }
-    }
-    function postReady(): void {
-      window.parent.postMessage({ type: "lameta:ready" }, "*");
-    }
-
-    initTimer = setTimeout(() => {
-      stopTimers();
-      window.removeEventListener("message", onMessage);
-      reject(new Error("Timed out waiting for lameta:init from host"));
     }, timeoutMs);
 
-    function onMessage(event: MessageEvent): void {
+    async function onMessage(event: MessageEvent) {
       const data = event.data as { type?: string } | null;
       if (!data || typeof data !== "object") return;
 
       if (data.type === "lameta:init") {
-        stopTimers();
-        const context = (data as { context: PluginInitContext }).context;
-        resolve({ context, api });
-        return;
-      }
-
-      if (data.type === "lameta:progress") {
-        const msg = data as PluginProgressMessage;
-        const cb = progress.get(msg.id);
-        if (cb && typeof msg.fraction === "number") cb(msg.fraction);
+        if (initTimer) {
+          clearTimeout(initTimer);
+          initTimer = null;
+        }
+        if (readyTimer) {
+          clearInterval(readyTimer);
+          readyTimer = null;
+        }
+        if (!connected) {
+          connected = true;
+          resolve({ context: (data as PluginInitMessage).context, api });
+        }
         return;
       }
 
       if (data.type === "lameta:response") {
-        const msg = data as PluginResponseMessage;
-        const entry = pending.get(msg.id);
-        if (!entry) return;
-        pending.delete(msg.id);
-        progress.delete(msg.id);
-        if (msg.error !== undefined && msg.error !== null) {
-          entry.reject(new Error(msg.error));
-        } else {
-          entry.resolve(msg.result);
+        handleResponse(data as PluginResponseMessage);
+        return;
+      }
+
+      if (data.type === "lameta:progress") {
+        handleProgress(data as PluginProgressMessage);
+        return;
+      }
+
+      if (data.type === "lameta:getTabs") {
+        const { id, file, folder } = data as PluginGetTabsMessage;
+        let tabs: TabDescriptor[] = [];
+        if (tabProviderHandler) {
+          try {
+            tabs = (await tabProviderHandler({ file, folder, api })) || [];
+          } catch {
+            // A failing provider must not wedge the host: report "no tabs" for this query.
+            tabs = [];
+          }
         }
+        window.parent.postMessage({ type: "lameta:tabs", id, tabs }, "*");
       }
     }
 
-    // Companion methods travel as dotted strings ("companions.readText", ...), so
-    // `method` is a plain string. `transfer` lets writeBytes hand its ArrayBuffer to
-    // the host zero-copy (the buffer is unusable in the plugin afterwards).
-    function request(
-      method: string,
-      params: unknown[],
-      transfer?: Transferable[],
-      onProgress?: (fraction: number) => void,
-    ): Promise<unknown> {
-      const id = nextId++;
-      return new Promise<unknown>((res, rej) => {
-        pending.set(id, { resolve: res, reject: rej });
-        if (onProgress) progress.set(id, onProgress);
-        const message = { type: "lameta:request", id, method, params };
-        if (transfer && transfer.length) window.parent.postMessage(message, "*", transfer);
-        else window.parent.postMessage(message, "*");
-      });
-    }
-
-    const api: PluginHostApiV1 = {
-      getFileBytes: () => request("getFileBytes", []) as Promise<ArrayBuffer>,
-      readFileRange: (offset, length) =>
-        request("readFileRange", [offset, length]) as Promise<ArrayBuffer>,
-      readSidecar: (name) => request("readSidecar", [name]) as Promise<string | null>,
-      writeSidecar: (contents, name) => request("writeSidecar", [contents, name]) as Promise<void>,
-      listSidecars: () => request("listSidecars", []) as Promise<string[]>,
-      selectFile: (relPath) => request("selectFile", [relPath]) as Promise<void>,
-      // Always present; every call errors unless the manifest declares the
-      // "companionFiles" permission.
-      companions: {
-        list: (subdir) =>
-          request("companions.list", [subdir]) as Promise<
-            { name: string; size: number; mtimeMs: number }[]
-          >,
-        exists: (relPath) => request("companions.exists", [relPath]) as Promise<boolean>,
-        readText: (relPath) => request("companions.readText", [relPath]) as Promise<string>,
-        readBytes: (relPath) => request("companions.readBytes", [relPath]) as Promise<ArrayBuffer>,
-        writeText: (relPath, contents) =>
-          request("companions.writeText", [relPath, contents]) as Promise<void>,
-        writeBytes: (relPath, data) =>
-          request("companions.writeBytes", [relPath, data], [data]) as Promise<void>,
-        rename: (fromRelPath, toRelPath) =>
-          request("companions.rename", [fromRelPath, toRelPath]) as Promise<void>,
-        delete: (relPath) => request("companions.delete", [relPath]) as Promise<void>,
-        stat: (relPath) =>
-          request("companions.stat", [relPath]) as Promise<{
-            size: number;
-            mtimeMs: number;
-          } | null>,
-      },
-      // Always present; every call errors unless the manifest declares the "ffmpeg"
-      // permission. `onProgress` is stripped from the wire params and driven by
-      // `lameta:progress` messages instead.
-      ffmpeg: {
-        probe: (relPath) => request("ffmpeg.probe", [relPath]) as Promise<FfprobeResult>,
-        run: ({ onProgress, ...spec }) =>
-          request("ffmpeg.run", [spec], undefined, onProgress) as Promise<void>,
-      },
-    };
-
-    // Listener first (synchronous, before any post) so we never miss the host's
-    // reply, then announce readiness immediately and keep re-announcing every
-    // ~150ms until `lameta:init` lands (stopTimers clears this).
     window.addEventListener("message", onMessage);
-    postReady();
-    readyTimer = setInterval(postReady, 150);
+    // Announce we're ready; the host replies with lameta:init (and also re-sends it on our load,
+    // so a missed early ready self-heals).
+    window.parent.postMessage({ type: "lameta:ready" }, "*");
+    readyTimer = setInterval(() => window.parent.postMessage({ type: "lameta:ready" }, "*"), 150);
   });
 }
 
 /**
- * Serve the host's tab-provider queries. Call this (once) in the hidden provider instance
- * — i.e. when `connectToLameta()` returned `context.role === "tabProvider"`. The host sends
- * a `lameta:getTabs` on EVERY selection change (uncached); we hand each query to `handler`
- * and post the resulting `TabDescriptor[]` back as `lameta:tabs` (an empty array = no tab).
- *
- * `handler` may be async and should recompute live (e.g. check companion state via the
- * `api` from `connectToLameta`, which the host scopes to the queried file for the duration
- * of the query). A throwing/rejecting handler yields no tabs rather than wedging the strip.
+ * Convenience for a provider-only entry: register the handler and connect. Equivalent to
+ * `serveTabProvider(handler); await connectToLameta();`. Prefer `connectToLameta()` +
+ * `serveTabProvider()` when one shared entry serves both roles.
  */
-export function serveTabProvider(
-  handler: (query: TabProviderQuery) => TabDescriptor[] | Promise<TabDescriptor[]>,
-): void {
-  window.addEventListener("message", (event: MessageEvent) => {
-    const data = event.data as { type?: string } | null;
-    if (!data || typeof data !== "object" || data.type !== "lameta:getTabs") return;
-    const msg = data as PluginGetTabsMessage;
-    const reply = (tabs: TabDescriptor[]): void =>
-      window.parent.postMessage({ type: "lameta:tabs", id: msg.id, tabs }, "*");
-    void Promise.resolve()
-      .then(() => handler({ file: msg.file, folder: msg.folder }))
-      .then(reply)
-      .catch(() => reply([]));
-  });
+export function connectAsTabProvider(
+  handler: TabProviderHandler,
+  timeoutMs = 10000,
+): Promise<void> {
+  serveTabProvider(handler);
+  return connectToLameta(timeoutMs).then(() => undefined);
 }

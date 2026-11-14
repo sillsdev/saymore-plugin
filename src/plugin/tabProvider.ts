@@ -1,7 +1,8 @@
 import { t } from "../l10n";
 import { annotationsEafName } from "../fs/SessionFolder";
 import { ORAL_ANNOTATIONS_WAV_SUFFIX } from "../model/SayMoreConstants";
-import type { PluginCompanionsApiV1, TabDescriptor, TabProviderQuery } from "./PluginApiTypes";
+import type { PluginCompanionsApiV1, TabDescriptor } from "./PluginApiTypes";
+import type { TabProviderQuery } from "./lametaPluginClient";
 
 /** Inputs the pure tab policy needs about the currently-selected file. */
 export interface TabQuery {
@@ -68,7 +69,7 @@ export function computeTabs(query: TabQuery): TabDescriptor[] {
  * for the duration of the query), so the answer is always current.
  */
 export async function resolveSaymoreTabs(
-  query: TabProviderQuery,
+  query: Pick<TabProviderQuery, "file">,
   companions: Pick<PluginCompanionsApiV1, "exists">,
 ): Promise<TabDescriptor[]> {
   const extension = query.file.extension.toLowerCase();

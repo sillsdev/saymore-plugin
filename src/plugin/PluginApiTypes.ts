@@ -1,39 +1,76 @@
-// VENDORED from lameta: src/plugins/PluginApiTypes.ts (plugin API v1).
+// VENDORED from lameta: src/plugins/PluginApiTypes.ts (plugin API v1). Local change: `any` -> `unknown`.
+// lameta plugin API — version 1
 //
-// Keep this in sync with the host copy. It is intentionally dependency-free (no
-// lameta/node imports) so it can one day be published as `@lameta/plugin-api`.
-// The only local change from the canonical source is that it lives here under
-// src/plugin/ and is imported by our vendored lametaPluginClient.ts.
+// These are dependency-free types that define the contract between lameta (the host)
+// and a file-handler plugin running inside an <iframe>. They are intentionally free of
+// any lameta or node imports so that they can one day be published as a standalone
+// `@lameta/plugin-api` npm package for plugin authors to depend on. Do not import
+// anything from the rest of lameta into this file.
 
 /** The plugin API major versions that this build of lameta can host. */
 export const LAMETA_PLUGIN_API_VERSIONS_SUPPORTED: number[] = [1];
 
-/** Folder kinds a plugin might be shown in. */
+/** Folder kinds a plugin might be shown in. v1 only ever runs plugins for content files
+ * inside session/person/project/project-documents folders (never for the Session or
+ * Person metadata "files" themselves). */
 export type PluginFolderType = "session" | "person" | "project" | "project documents";
 
-/**
- * The one-time context lameta hands a plugin at startup (the `lameta:init` message).
- * Everything here is a plain, serializable value (no functions, no live objects).
- */
-export interface PluginInitContext {
+/** Fields common to every `lameta:init` context, regardless of the iframe's role. */
+export interface PluginContextBase {
   /** The API major version lameta is speaking. Matches the plugin manifest's apiVersion. */
   apiVersion: number;
-  /**
-   * Which kind of instance this is (tab-provider model, plugin API v1+):
-   *  - "tabProvider" — the hidden instance the host queries with `lameta:getTabs` on every
-   *    selection; it has no `file`/`folder` (each query carries its own).
-   *  - "tab" — a per-file content tab; `file`/`folder`/`tab` are populated.
-   * Absent on hosts that predate the provider model (treat as "tab").
-   */
-  role?: "tab" | "tabProvider";
-  /** For a content tab, which provider-supplied tab this iframe is rendering. */
-  tab?: { id: string };
   plugin: {
     id: string;
     version: string;
-    /** The manifest `permissions` the host granted this plugin, e.g. ["companionFiles"]. */
+    /** The manifest `permissions` the host granted this plugin (currently always all of
+     * them, e.g. ["companionFiles"]). Check this before calling permission-gated APIs. */
     grantedPermissions: string[];
   };
+  ui: {
+    /** lameta's current UI language code, e.g. "en", "es". */
+    languageCode: string;
+    /** lameta version string, for display / compatibility checks. */
+    appVersion: string;
+  };
+}
+
+/**
+ * The context for a persistent, hidden **tab-provider** iframe. lameta loads one of these per
+ * plugin (see the manifest `tabProvider` entry) and asks it, on EVERY selection change, which
+ * tabs to show for the selected file (`lameta:getTabs` → `lameta:tabs`). It carries no file —
+ * the file arrives with each query. Use `connectAsTabProvider()` in the client kit.
+ */
+export interface PluginTabProviderContext extends PluginContextBase {
+  role: "tabProvider";
+}
+
+/**
+ * A tab the provider claims for the currently selected file. Returning `[]` means "no tab for
+ * this file" (e.g. an audio file that already has its annotation companion). The provider is
+ * re-queried on every selection change and its answer is never cached, so it MAY differ across
+ * calls for the same file as that file's companions come and go.
+ */
+export interface TabDescriptor {
+  /** stable id lameta echoes back as `context.tab.id` when this tab's content iframe loads. */
+  id: string;
+  /** plain string, or a language-code→string map (host localizes; `en` is the fallback). */
+  label: string | Record<string, string>;
+  /** open this tab instead of the built-in viewer. */
+  claimDefault?: boolean;
+  /** tiebreak among default claimants (higher wins); then plugin id, then tab id. */
+  defaultPriority?: number;
+}
+
+/**
+ * The one-time context lameta hands a plugin's **content tab** iframe at startup (the
+ * `lameta:init` message). Everything here is a plain, serializable value (no functions, no live
+ * objects).
+ */
+export interface PluginInitContext extends PluginContextBase {
+  /** Discriminator; "tab" for a content tab iframe (the default/omitted case is also a tab). */
+  role?: "tab";
+  /** Which provider-supplied tab this iframe is rendering (echoes TabDescriptor.id). */
+  tab?: { id: string };
   file: {
     /** Absolute path on disk to the actual file (link files already resolved). */
     path: string;
@@ -53,65 +90,70 @@ export interface PluginInitContext {
     /** Absolute path to the folder that "owns" the file. Sidecars live under here. */
     directory: string;
   };
-  ui: {
-    /** lameta's current UI language code, e.g. "en", "es". */
-    languageCode: string;
-    /** lameta version string, for display / compatibility checks. */
-    appVersion: string;
-  };
+  // `ui` is inherited from PluginContextBase.
 }
 
 /**
- * Scoped access to the selected file's SayMore-style companion files. Requires the
- * `companionFiles` manifest permission. All `relPath`s are relative to the selected
- * file's own directory and are validated by the host against an allowlist derived
- * from the selected file's name. On the wire these travel as dotted method strings
- * ("companions.list", "companions.readText", ...).
+ * Scoped access to the selected file's SayMore-style companion files (the
+ * `.annotations.eaf` / `_Annotations/` / `_StandardAudio.wav` family living beside the
+ * actual media file). Requires the `companionFiles` manifest permission — the client
+ * object always has `api.companions`, but every call errors if the permission is absent.
+ *
+ * All `relPath`s are relative to the selected file's own directory and are validated by
+ * the host against an allowlist derived from the selected file's name; anything else
+ * (including `..` and absolute paths) is rejected. On the wire these travel as dotted
+ * method strings ("companions.list", "companions.readText", ...).
  */
 export interface PluginCompanionsApiV1 {
+  /** List existing companions. With no `subdir`, stats each allowed top-level companion
+   * that exists. With a `subdir` (must be an allowed `..._Annotations` dir), lists the
+   * .wav files directly inside it (empty array if the dir doesn't exist). */
   list(subdir?: string): Promise<{ name: string; size: number; mtimeMs: number }[]>;
   exists(relPath: string): Promise<boolean>;
   readText(relPath: string): Promise<string>;
+  /** Read a companion as bytes. Transferred as an ArrayBuffer, like getFileBytes. */
   readBytes(relPath: string): Promise<ArrayBuffer>;
+  /** Atomic: written to a temp file in the same directory, then renamed over the target. */
   writeText(relPath: string, contents: string): Promise<void>;
+  /** Atomic, like writeText. */
   writeBytes(relPath: string, data: ArrayBuffer): Promise<void>;
+  /** A real fs rename (not copy+delete); both paths validated. */
   rename(fromRelPath: string, toRelPath: string): Promise<void>;
+  /** Delete a companion file (never a directory). */
   delete(relPath: string): Promise<void>;
+  /** Stat a companion, or null if it doesn't exist. Poll this (~2s) to detect external
+   * edits, e.g. the user saving the .eaf from ELAN. */
   stat(relPath: string): Promise<{ size: number; mtimeMs: number } | null>;
 }
 
-/** Parsed ffprobe metadata (a normalized subset of ffprobe's format+streams). */
-export interface FfprobeResult {
-  format: { durationSec?: number; formatName?: string; formatLongName?: string };
-  streams: Array<{
-    codecType?: "audio" | "video" | string;
-    codecName?: string;
-    channels?: number;
-    sampleRate?: number;
-    width?: number;
-    height?: number;
-    durationSec?: number;
-  }>;
-}
-
 /**
- * Generic ffmpeg access, gated by the `ffmpeg` manifest permission. lameta bundles
- * ffmpeg/ffprobe (ffmpeg-ffprobe-static); the plugin supplies the conversion args so
- * this stays generic (SayMore's `_StandardAudio.wav` conversion is just the first consumer).
+ * Generic ffmpeg/ffprobe access for the selected file and its companions. Requires the
+ * `ffmpeg` manifest permission — the client object always has `api.ffmpeg`, but every call
+ * errors if the permission is absent (mirrors `companions.*`). On the wire these travel as
+ * dotted method strings ("ffmpeg.probe", "ffmpeg.run"). All input/output paths are validated
+ * exactly like `companions.*` (the selected file, or a companion of it); nothing else is
+ * reachable, so an ffmpeg output can never escape the companion allowlist.
  */
 export interface PluginFfmpegApiV1 {
-  /**
-   * ffprobe a file → normalized metadata. `relPath` defaults to the SELECTED file;
-   * otherwise it must be a companion path (validated exactly like `companions.*`).
-   */
+  /** ffprobe a file → curated metadata. `relPath` defaults to the SELECTED file; otherwise it
+   * must be a companion path (same allowlist as `companions.*`). */
   probe(relPath?: string): Promise<FfprobeResult>;
+
   /**
-   * Run one ffmpeg conversion. Input is the selected file (default) or companion
-   * `inputRelPath`; output is written to companion `outputRelPath` (same allowlist +
-   * atomic write as `companions.writeBytes`). `args` are the ffmpeg OUTPUT options placed
-   * before the output file; `inputArgs` (rare) go before `-i`. `onProgress` fires 0→1 as
-   * ffmpeg reports progress (kept client-side; not sent over the wire). Rejects on a
-   * non-zero ffmpeg exit.
+   * Run one ffmpeg conversion to a companion file.
+   *  - input   = the selected file (default) OR companion `inputRelPath`
+   *  - output  = companion `outputRelPath` (same allowlist + atomic tmp+rename as
+   *              `companions.writeBytes`; ffmpeg writes the tmp, the host renames it into
+   *              place on success). Give it a real extension for the container you want:
+   *              ffmpeg picks its muxer from that extension unless you pass `-f` in `args`.
+   *  - `args`      = ffmpeg OUTPUT options placed BEFORE the output file
+   *                  (e.g. ["-vn","-ac","1","-ar","22050","-acodec","pcm_s16le"])
+   *  - `inputArgs` = optional options placed BEFORE `-i` (rarely needed)
+   *  - `onProgress(fraction)` fires 0..1 as ffmpeg reports progress (the host computes it from
+   *    the probed input duration). Advisory: it may fire 0 times if the duration is unknown,
+   *    and is not guaranteed to reach exactly 1 — treat the promise resolving as "done".
+   * Resolves once the output has been renamed into place. Rejects on a non-zero ffmpeg exit
+   * (the message carries a stderr tail) or an invalid/denied path — never crashes the host.
    */
   run(spec: {
     inputRelPath?: string;
@@ -122,25 +164,64 @@ export interface PluginFfmpegApiV1 {
   }): Promise<void>;
 }
 
-/** The RPC surface a plugin can call on the host. */
+/** Curated subset of ffprobe output (the host maps fluent-ffmpeg's raw result into this).
+ * All durations are in seconds. Fields are optional because not every stream/format reports
+ * every value. */
+export interface FfprobeResult {
+  format: { durationSec?: number; formatName?: string; formatLongName?: string };
+  streams: Array<{
+    codecType?: "audio" | "video" | (string & {});
+    codecName?: string;
+    channels?: number;
+    sampleRate?: number;
+    width?: number;
+    height?: number;
+    durationSec?: number;
+  }>;
+}
+
+/**
+ * The RPC surface a plugin can call on the host. In the iframe, a plugin obtains an
+ * object implementing this interface from `connectToLameta()` in the client kit; each
+ * method is a thin wrapper that posts a `lameta:request` and awaits the matching
+ * `lameta:response`.
+ */
 export interface PluginHostApiV1 {
+  /** Read the whole selected file as bytes. Transferred as an ArrayBuffer. Intended for
+   * reasonable-size reads; for large media prefer `file.uri` directly in a media element. */
   getFileBytes(): Promise<ArrayBuffer>;
+
+  /** Read `length` bytes of the selected file starting at `offset` (both non-negative
+   * integers; length is clamped to the file size). Transferred as an ArrayBuffer.
+   * Prefer this over getFileBytes for chunked processing of long media. */
   readFileRange(offset: number, length: number): Promise<ArrayBuffer>;
+
+  /** Read a plugin-namespaced sidecar for the current file. Returns null if none exists.
+   * `name` defaults to "annotations"; it must match /^[a-z0-9_-]+$/i. */
   readSidecar(name?: string): Promise<string | null>;
+
+  /** Write (create/overwrite) a plugin-namespaced sidecar for the current file. */
   writeSidecar(contents: string, name?: string): Promise<void>;
+
+  /** List the sidecar names that currently exist for this file & plugin. */
   listSidecars(): Promise<string[]>;
-  companions: PluginCompanionsApiV1;
-  /** Generic ffmpeg access (probe/run); requires the `ffmpeg` manifest permission. */
-  ffmpeg: PluginFfmpegApiV1;
+
   /**
-   * Ask the host to select another file in the current folder (rescanning the
-   * folder first so a just-created file is found). `relPath` is relative to
-   * `folder.directory`. Selecting a file tears down this iframe and recreates it
-   * bound to the newly selected file — used by the "Start Annotating" flow to
-   * select the freshly-written `<media>.annotations.eaf`. Rejects if the host
-   * build predates this method; callers should feature-detect / fall back.
+   * Ask lameta to make another file in the SAME folder the selected file, re-driving the
+   * file-pane tabs (so a plugin can, e.g., create `<media>.annotations.eaf` via companions
+   * and then switch selection to it so its "Segments" tab shows). `relPath` is relative to
+   * `folder.directory`; the file must already exist on disk (write it first) and lie directly
+   * in that folder (no `..`, no absolute paths, no subdirectories). Resolves to true if a file
+   * was selected, false if it could not be found. Ungated (a plugin can only select a file the
+   * user could select by hand).
    */
-  selectFile(relPath: string): Promise<void>;
+  selectFile(relPath: string): Promise<boolean>;
+
+  /** Companion-file access; requires the `companionFiles` manifest permission. */
+  companions: PluginCompanionsApiV1;
+
+  /** ffmpeg/ffprobe access; requires the `ffmpeg` manifest permission. */
+  ffmpeg: PluginFfmpegApiV1;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,54 +230,26 @@ export interface PluginHostApiV1 {
 
 export const PLUGIN_MESSAGE_PREFIX = "lameta:";
 
+/** plugin -> host: sent once, when the plugin's script has loaded and it is ready to
+ * receive `lameta:init`. */
 export interface PluginReadyMessage {
   type: "lameta:ready";
 }
 
+/** host -> plugin: the one-time init handshake carrying the context. The context is a
+ * PluginInitContext for a content-tab iframe, or a PluginTabProviderContext for the hidden
+ * tab-provider iframe. */
 export interface PluginInitMessage {
   type: "lameta:init";
-  context: PluginInitContext;
+  context: PluginInitContext | PluginTabProviderContext;
 }
 
-export interface PluginRequestMessage {
-  type: "lameta:request";
+/** host -> tab-provider: "which tabs do you claim for this selected file?" Sent on EVERY
+ * selection change (never cached). While a query is outstanding, the provider's `companions.*`
+ * calls are scoped to `file` so it can decide live (e.g. `companions.exists(eaf)`). */
+export interface PluginGetTabsMessage {
+  type: "lameta:getTabs";
   id: number;
-  method: string;
-  params: unknown[];
-}
-
-export interface PluginResponseMessage {
-  type: "lameta:response";
-  id: number;
-  result?: unknown;
-  error?: string;
-}
-
-/**
- * Advisory host→plugin progress for a long-running request (currently `ffmpeg.run`),
- * keyed by the in-flight request id. Fire-and-forget: the final `lameta:response` still
- * resolves the call, and progress messages may be dropped.
- */
-export interface PluginProgressMessage {
-  type: "lameta:progress";
-  id: number;
-  fraction: number;
-}
-
-/** A tab the plugin's provider claims for a selected file (returned from `lameta:getTabs`). */
-export interface TabDescriptor {
-  /** Stable id for this tab (reaches the content iframe as `context.tab.id`). */
-  id: string;
-  /** Display label — a plain string or a language-code→string map (`en` fallback). */
-  label: string | Record<string, string>;
-  /** Open this tab instead of the built-in viewer. */
-  claimDefault?: boolean;
-  /** Tiebreak among default claimants (higher wins). */
-  defaultPriority?: number;
-}
-
-/** The per-selection context the host passes with a `lameta:getTabs` query. */
-export interface TabProviderQuery {
   file: {
     name: string;
     extension: string;
@@ -205,30 +258,49 @@ export interface TabProviderQuery {
     path: string;
     uri: string;
   };
-  folder: { type: PluginFolderType; directory: string };
+  folder: {
+    type: PluginFolderType;
+    directory: string;
+  };
 }
 
-/**
- * Host → tab-provider: "which tabs do you claim for this file?" Sent on EVERY selection
- * change (query-per-selection, uncached — the answer may differ for the same file as its
- * companions change). While a query is outstanding the provider's `companions.*` calls
- * resolve against `file`, so the handler can check companion state live.
- */
-export interface PluginGetTabsMessage extends TabProviderQuery {
-  type: "lameta:getTabs";
-  id: number;
-}
-
-/** Tab-provider → host: the claimed tabs (empty array = no tab for this file). */
+/** tab-provider -> host: the tabs to show for the queried file (`[]` = none). */
 export interface PluginTabsMessage {
   type: "lameta:tabs";
   id: number;
   tabs: TabDescriptor[];
 }
 
+/** plugin -> host: a request to invoke one of the PluginHostApiV1 methods. Nested API
+ * groups travel as dotted strings, e.g. "companions.readText" — so `method` is a string
+ * rather than `keyof PluginHostApiV1`. */
+export interface PluginRequestMessage {
+  type: "lameta:request";
+  id: number;
+  method: string;
+  params: unknown[];
+}
+
+/** host -> plugin: the response to a PluginRequestMessage. */
+export interface PluginResponseMessage {
+  type: "lameta:response";
+  id: number;
+  result?: unknown;
+  error?: string;
+}
+
+/** host -> plugin: advisory, fire-and-forget progress for an in-flight `lameta:request`
+ * (currently only `ffmpeg.run`). Keyed by that request's id. The final `lameta:response`
+ * still resolves the promise; progress messages may be dropped or coalesced. */
+export interface PluginProgressMessage {
+  type: "lameta:progress";
+  id: number;
+  fraction: number; // 0..1, monotonic-ish
+}
+
 export type PluginToHostMessage = PluginReadyMessage | PluginRequestMessage | PluginTabsMessage;
 export type HostToPluginMessage =
   | PluginInitMessage
   | PluginResponseMessage
-  | PluginProgressMessage
-  | PluginGetTabsMessage;
+  | PluginGetTabsMessage
+  | PluginProgressMessage;

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { PluginHostAdapter } from "./PluginHostAdapter";
 import type { PluginHostApiV1 } from "./PluginApiTypes";
+import { SessionFolder } from "../fs/SessionFolder";
+
+const enc8 = (text: string): Uint8Array => new TextEncoder().encode(text);
 
 /**
  * A fake host API backed by an in-memory companion store, mirroring the host's
@@ -26,7 +29,7 @@ function makeFakeHost(opts: {
     readSidecar: async () => null,
     writeSidecar: async () => {},
     listSidecars: async () => [],
-    selectFile: async () => {},
+    selectFile: async () => true,
     ffmpeg: {
       probe: async () => ({ format: {}, streams: [] }),
       run: async () => {},
@@ -107,6 +110,27 @@ describe("PluginHostAdapter", () => {
       "ETR009.mp3.annotations.eaf",
       "ETR009.mp3_Annotations/0.5_to_1.25_Careful.wav",
     ]);
+  });
+
+  it("leaves out sibling media that share the stem, so the session anchors on the selected media", async () => {
+    const { api } = makeFakeHost({
+      selectedBytes: enc8("<eaf/>"),
+      companions: {
+        "X_Original.mp3": new Uint8Array([1]),
+        "X_Original.wav": new Uint8Array([2]),
+        "X_Original_StandardAudio.wav": new Uint8Array([3]),
+        "X_Original.wav.annotations.eaf": "<eaf/>",
+        "X_Original.wav.oralAnnotations.wav": new Uint8Array([4]),
+      },
+    });
+    const fs = new PluginHostAdapter(api, "X_Original.wav", "X_Original.wav.annotations.eaf");
+    expect(await fs.list()).toEqual([
+      "X_Original.wav",
+      "X_Original.wav.annotations.eaf",
+      "X_Original.wav.oralAnnotations.wav",
+    ]);
+    const session = await SessionFolder.open(fs);
+    expect(session?.mediaFileName).toBe("X_Original.wav");
   });
 
   it("reads the selected media via getFileBytes, not companions", async () => {

@@ -70,7 +70,12 @@ export class PluginHostAdapter implements FileSystemAdapter {
     const names = new Set<string>();
     // Surface the media so SessionFolder.findMediaFile picks it up in either state.
     names.add(this.mediaFileName);
-    for (const entry of await this.api.companions.list()) names.add(entry.name);
+    // The host lists every file that shares the media's stem, which includes sibling media such
+    // as `X.mp3` beside `X.wav`. SessionFolder.findMediaFile would then pick the wrong one, so
+    // keep only the media's own companions (names that start with the media's full name).
+    for (const entry of await this.api.companions.list()) {
+      if (normalize(entry.name).startsWith(this.mediaLower)) names.add(entry.name);
+    }
     for (const dir of this.annotationDirs()) {
       try {
         for (const entry of await this.api.companions.list(dir)) names.add(`${dir}/${entry.name}`);

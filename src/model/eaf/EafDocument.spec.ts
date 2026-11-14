@@ -58,6 +58,13 @@ describe("EafDocument round-trip of a real SayMore EAF", () => {
   });
 });
 
+describe("EafDocument byte order mark", () => {
+  it("loads an eaf whose text starts with a UTF-8 byte order mark", () => {
+    const doc = loadEaf("\ufeff" + read("real-eaf", "test.eaf"));
+    expect(transcriptionIds(doc)).toEqual(["a1", "a3", "a2"]);
+  });
+});
+
 describe("EafDocument %ignore% handling", () => {
   it("keeps %ignore% as transcription text with empty free-translation", () => {
     const doc = loadEaf(read("session", "longerSound.wav.annotations.eaf"));

@@ -48,6 +48,11 @@ export interface EafDocument {
   /** The preserved DOM (foreign tiers included); exposed for callers/tests. */
   readonly dom: Document;
   /**
+   * The language each owned tier declares, from its `LANG_REF` attribute, else its
+   * `DEFAULT_LOCALE`; `undefined` when the tier is missing or declares none.
+   */
+  tierLanguages(): { transcription?: string; freeTranslation?: string };
+  /**
    * Rewrite the Transcription + Phrase Free Translation tiers (and TIME_ORDER)
    * from `segments`, preserving every foreign tier and unknown element. New
    * time-slot and annotation ids are allocated per the SayMore rules; existing
@@ -166,6 +171,21 @@ class EafDocumentImpl implements EafDocument {
     const root = this.dom.documentElement;
     if (!root) throw new Error("EAF has no document element");
     return root;
+  }
+
+  tierLanguages(): { transcription?: string; freeTranslation?: string } {
+    const read = (tier: Element | undefined): string | undefined => {
+      const value = (
+        tier?.getAttribute("LANG_REF") ||
+        tier?.getAttribute("DEFAULT_LOCALE") ||
+        ""
+      ).trim();
+      return value === "" ? undefined : value;
+    };
+    return {
+      transcription: read(this.findTier(TRANSCRIPTION_TIER)),
+      freeTranslation: read(this.findTier(FREE_TRANSLATION_TIER)),
+    };
   }
 
   /** Find one of SayMore's two owned tiers by case-insensitive TIER_ID. */
@@ -496,7 +516,10 @@ class EafDocumentImpl implements EafDocument {
 // ── public API ───────────────────────────────────────────────────────────────
 
 function parse(xml: string): Document {
-  return new DOMParser().parseFromString(xml, "text/xml") as unknown as Document;
+  // SayMore writes its .eaf files with a UTF-8 byte order mark, and a read that decodes
+  // them as "utf8" keeps it as U+FEFF, which xmldom rejects before the XML declaration.
+  const text = xml.charCodeAt(0) === 0xfeff ? xml.slice(1) : xml;
+  return new DOMParser().parseFromString(text, "text/xml") as unknown as Document;
 }
 
 /** Parse an existing `.annotations.eaf` string, preserving foreign nodes. */

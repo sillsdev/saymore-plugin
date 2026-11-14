@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { computeTabs, resolveSaymoreTabs } from "./tabProvider";
-import type { TabProviderQuery } from "./PluginApiTypes";
+import type { TabProviderQuery } from "./lametaPluginClient";
 
-function query(over: Partial<TabProviderQuery["file"]>): TabProviderQuery {
+function query(over: Partial<TabProviderQuery["file"]>): Omit<TabProviderQuery, "api"> {
   return {
     file: {
       name: "new.wav",

@@ -126,21 +126,25 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
       // "redraw" event and mis-measure the MediaElement backend.
     }
 
-    // Size the content box BEFORE wavesurfer mounts. A layout effect runs before
-    // the passive create-effect below (and before paint), so `contentWidth` is
-    // already committed to the DOM when wavesurfer takes its first measurement —
-    // it then renders once, at the final zoom width. Without this, wavesurfer's
-    // first render lands at the pane width (contentWidth still 0 → CSS 100%) and
-    // a second render follows at the zoom width; that fit-to-pane render max-
-    // downsamples the (normalized) peaks into a solid block, so the correction
-    // reads as a flash of a totally different waveform.
+    // Size the content box before wavesurfer exists. wavesurfer measures its
+    // container once when it first renders; if the box is still at its CSS 100%
+    // then, the whole file is squeezed into the pane, and a second render at the
+    // zoom width follows. Max-downsampling the normalized peaks into the pane
+    // paints a nearly solid block, so that first render reads as a flash of a
+    // different waveform. The create-effect below therefore waits for `sized`,
+    // which is true only after a render that has committed `contentWidth`.
     useLayoutEffect(() => {
       recompute();
     }, [durationSec]);
+    const sized = contentWidth > 0;
 
+    // Create wavesurfer only once the envelope is here. Given peaks and a
+    // duration, it draws those peaks and never fetches or decodes the media.
+    // Given neither, it fetches the whole file, decodes it to PCM (memory grows
+    // with the file's length) and draws that raw, unnormalized signal.
     useEffect(() => {
       const container = waveRef.current;
-      if (!container || durationSec <= 0) return;
+      if (!container || !envelope || !sized || durationSec <= 0) return;
 
       const ws = WaveSurfer.create({
         container,
@@ -157,7 +161,7 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
         normalize: false,
         minPxPerSec: 1,
         duration: durationSec,
-        peaks: envelope ? envelopeToPeaks(envelope) : undefined,
+        peaks: envelopeToPeaks(envelope),
         ...(mediaElement ? { media: mediaElement } : mediaUrl ? { url: mediaUrl } : {}),
       });
       wsRef.current = ws;
@@ -173,17 +177,6 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
         recompute();
       });
       ws.on("interaction", (newTime: number) => onSeek?.(newTime));
-      // TEMP flash-diagnostic
-      ws.on("redraw", () => {
-        (window as unknown as { __wsRenders?: unknown[] }).__wsRenders ??= [];
-        (window as unknown as { __wsRenders: unknown[] }).__wsRenders.push({
-          t: performance.now(),
-          width: ws.getWidth(),
-          color: waveColor,
-        });
-        // eslint-disable-next-line no-console
-        console.log("[wsRedraw]", waveColor, ws.getWidth());
-      });
 
       // MediaElement backend with shared element may already be "ready".
       readyRef.current = true;
@@ -204,7 +197,7 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
           /* ignore teardown races */
         }
       };
-    }, [mediaElement, mediaUrl, durationSec, waveColor]);
+    }, [envelope, sized, mediaElement, mediaUrl, durationSec, waveColor]);
 
     // After a zoom changes the content width, pin the anchor time back under the
     // same viewport x (runs before paint, so there's no visible jump).
@@ -266,6 +259,7 @@ export const WaveformSurface = forwardRef<WaveformSurfaceApi, WaveformSurfacePro
     return (
       <div
         ref={rootRef}
+        data-testid="waveform-surface"
         onScroll={handleScroll}
         css={css`
           position: relative;

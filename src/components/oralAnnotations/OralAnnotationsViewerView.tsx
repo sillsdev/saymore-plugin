@@ -49,7 +49,9 @@ export const OralAnnotationsViewerView = observer(function OralAnnotationsViewer
   const viewer = store.oralViewer;
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
+  /** Follows the element's own `playing` / `pause` / `ended` events, never the click. */
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playError, setPlayError] = useState<string | undefined>(undefined);
   const [positionSec, setPositionSec] = useState(0);
 
   // One <audio> element on a blob URL of the combined file per byte version —
@@ -59,6 +61,7 @@ export const OralAnnotationsViewerView = observer(function OralAnnotationsViewer
   useEffect(() => {
     const bytes = viewer?.bytes;
     setIsPlaying(false);
+    setPlayError(undefined);
     setPositionSec(0);
     if (!bytes) {
       audioRef.current = null;
@@ -70,13 +73,21 @@ export const OralAnnotationsViewerView = observer(function OralAnnotationsViewer
     const audio = new Audio(url);
     audioRef.current = audio;
     const onTime = (): void => setPositionSec(audio.currentTime);
-    const onEnded = (): void => setIsPlaying(false);
+    const onPlaying = (): void => {
+      setIsPlaying(true);
+      setPlayError(undefined);
+    };
+    const onStopped = (): void => setIsPlaying(false);
     audio.addEventListener("timeupdate", onTime);
-    audio.addEventListener("ended", onEnded);
+    audio.addEventListener("playing", onPlaying);
+    audio.addEventListener("pause", onStopped);
+    audio.addEventListener("ended", onStopped);
     return () => {
       audio.pause();
       audio.removeEventListener("timeupdate", onTime);
-      audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("playing", onPlaying);
+      audio.removeEventListener("pause", onStopped);
+      audio.removeEventListener("ended", onStopped);
       URL.revokeObjectURL(url);
       audioRef.current = null;
     };
@@ -110,13 +121,19 @@ export const OralAnnotationsViewerView = observer(function OralAnnotationsViewer
   if (!viewer) return null;
 
   function handlePlay(): void {
-    void audioRef.current?.play();
-    setIsPlaying(true);
+    const audio = audioRef.current;
+    if (!audio) return;
+    setPlayError(undefined);
+    audio.play().catch((e: unknown) => {
+      // A superseded request (a pause or reload before playback began) is not a failure.
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      if (audioRef.current !== audio) return;
+      setIsPlaying(false);
+      setPlayError(e instanceof Error ? e.message : String(e));
+    });
   }
   function handleStop(): void {
-    const audio = audioRef.current;
-    if (audio) audio.pause();
-    setIsPlaying(false);
+    audioRef.current?.pause();
   }
   /** Click-to-seek: only while stopped (SayMore parity); Play resumes from here. */
   function handleSeek(e: React.MouseEvent<HTMLDivElement>): void {
@@ -171,6 +188,11 @@ export const OralAnnotationsViewerView = observer(function OralAnnotationsViewer
         >
           ⏹ {t("oralann.stop", "Stop")}
         </Button>
+        {playError && (
+          <span data-testid="oralann-play-error" role="alert" css={css({ color: "#c62828" })}>
+            {t("oralann.playFailed", "Playback failed: {reason}", { reason: playError })}
+          </span>
+        )}
         <span css={css({ flex: 1 })} />
         {viewer.isRegenerating && (
           <CircularProgress

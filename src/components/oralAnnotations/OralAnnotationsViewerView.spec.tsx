@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
 import type { ProjectStore } from "../../state/ProjectStore";
 import * as wavCodec from "../../audio/wavCodec";
 import { OralAnnotationsViewerView } from "./OralAnnotationsViewerView";
@@ -13,6 +13,31 @@ function fakeStore(overrides: {
     oralViewer: overrides.oralViewer,
     envelope: overrides.envelope ?? { channels: [{}] },
   } as unknown as ProjectStore;
+}
+
+/** An element that starts and pauses at once, as a real one does after play() resolves. */
+function stubAudioStartsPlaying(): void {
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(
+    function (this: HTMLMediaElement) {
+      this.dispatchEvent(new Event("playing"));
+      return Promise.resolve();
+    },
+  );
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(
+    function (this: HTMLMediaElement) {
+      this.dispatchEvent(new Event("pause"));
+    },
+  );
+}
+
+const playableStore = (): ProjectStore =>
+  fakeStore({ oralViewer: { bytes: new Uint8Array([1]), durationSec: 10, loading: false } });
+
+function stubDecode(): void {
+  vi.spyOn(wavCodec, "decodeWav").mockReturnValue({
+    channels: [new Float32Array(10), new Float32Array(10)],
+    sampleRate: 48000,
+  });
 }
 
 describe("OralAnnotationsViewerView", () => {
@@ -91,6 +116,7 @@ describe("OralAnnotationsViewerView", () => {
       channels: [new Float32Array(10), new Float32Array(10)],
       sampleRate: 48000,
     });
+    stubAudioStartsPlaying();
     const store = fakeStore({
       oralViewer: { bytes: new Uint8Array([1]), durationSec: 5, loading: false },
     });
@@ -112,6 +138,7 @@ describe("OralAnnotationsViewerView", () => {
       channels: [new Float32Array(10), new Float32Array(10)],
       sampleRate: 48000,
     });
+    stubAudioStartsPlaying();
     const store = fakeStore({
       oralViewer: { bytes: new Uint8Array([1]), durationSec: 10, loading: false },
     });
@@ -130,6 +157,65 @@ describe("OralAnnotationsViewerView", () => {
     fireEvent.click(screen.getByTestId("oralann-play"));
     fireEvent.click(column, { clientX: 0 });
     expect(screen.getByTestId("oralann-time-readout").textContent).toBe("05.0 / 10.0");
+  });
+
+  it("does not claim to play until the element reports playing, and follows pause and ended", () => {
+    stubDecode();
+    let audio!: HTMLMediaElement;
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(
+      function (this: HTMLMediaElement) {
+        audio = this;
+        return new Promise<void>(() => {}); // loading: play() has not started yet
+      },
+    );
+    render(<OralAnnotationsViewerView store={playableStore()} />);
+    const play = screen.getByTestId("oralann-play") as HTMLButtonElement;
+    const stop = screen.getByTestId("oralann-stop") as HTMLButtonElement;
+
+    fireEvent.click(play);
+    expect(play.disabled).toBe(false);
+    expect(stop.disabled).toBe(true);
+
+    act(() => void audio.dispatchEvent(new Event("playing")));
+    expect(play.disabled).toBe(true);
+    expect(stop.disabled).toBe(false);
+
+    act(() => void audio.dispatchEvent(new Event("pause")));
+    expect(play.disabled).toBe(false);
+    expect(stop.disabled).toBe(true);
+
+    act(() => void audio.dispatchEvent(new Event("playing")));
+    expect(stop.disabled).toBe(false);
+    act(() => void audio.dispatchEvent(new Event("ended")));
+    expect(play.disabled).toBe(false);
+  });
+
+  it("surfaces a rejected play() and stays stopped", async () => {
+    stubDecode();
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValue(
+      new DOMException("The element has no supported sources.", "NotSupportedError"),
+    );
+    render(<OralAnnotationsViewerView store={playableStore()} />);
+
+    fireEvent.click(screen.getByTestId("oralann-play"));
+    await waitFor(() => expect(screen.getByTestId("oralann-play-error")).toBeTruthy());
+    expect(screen.getByTestId("oralann-play-error").textContent).toContain("no supported sources");
+    expect((screen.getByTestId("oralann-play") as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByTestId("oralann-stop") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("oralann-cursor")).toBeNull();
+  });
+
+  it("a play() superseded by a pause is not shown as a failure", async () => {
+    stubDecode();
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockRejectedValue(new DOMException("interrupted by pause()", "AbortError"));
+    render(<OralAnnotationsViewerView store={playableStore()} />);
+
+    fireEvent.click(screen.getByTestId("oralann-play"));
+    await waitFor(() => expect(play).toHaveBeenCalled());
+    await act(async () => {});
+    expect(screen.queryByTestId("oralann-play-error")).toBeNull();
   });
 
   it("shows the error message when the viewer failed to load", () => {

@@ -8,8 +8,12 @@ import Select from "@mui/material/Select";
 import { t } from "../../l10n";
 import type { ProjectStore } from "../../state/ProjectStore";
 import { TranscriptionGrid } from "./TranscriptionGrid";
+import { ExportMenu } from "./ExportMenu";
+import type { RunFfmpeg } from "../../export/audioExport";
+import { ExternalChangeBanner } from "./ExternalChangeBanner";
 import { ManualSegmenterView } from "../segmenter/ManualSegmenterView";
-import { StubButton, stubTitle } from "../shell/stub";
+import { StubButton } from "../shell/stub";
+import { gridPreferences, PLAYBACK_SPEED_CHOICES } from "../../state/GridPreferences";
 import { LAMETA_UI_FONT } from "../../lametaTheme";
 
 /**
@@ -37,6 +41,8 @@ export const AnnotationsPaneView = observer(function AnnotationsPaneView(props: 
    * host simulator passes a bounded height so the grid sits inside its page.
    */
   height?: string;
+  /** The host's ffmpeg for the audio exports' mp3 step; absent in the harness. */
+  runFfmpeg?: RunFfmpeg;
 }) {
   const { store } = props;
   switch (store.annotationsView) {
@@ -49,6 +55,7 @@ export const AnnotationsPaneView = observer(function AnnotationsPaneView(props: 
           store={store}
           onSetupOralAnnotations={props.onSetupOralAnnotations}
           height={props.height ?? "100vh"}
+          runFfmpeg={props.runFfmpeg}
         />
       );
   }
@@ -65,6 +72,7 @@ const SegmentMode = observer(function SegmentMode(props: { store: ProjectStore }
         font-family: ${LAMETA_UI_FONT};
       `}
     >
+      <ExternalChangeBanner store={store} />
       <div
         css={css`
           display: flex;
@@ -138,6 +146,7 @@ const GridMode = observer(function GridMode(props: {
   store: ProjectStore;
   onSetupOralAnnotations?: () => Promise<void>;
   height: string;
+  runFfmpeg?: RunFfmpeg;
 }) {
   const { store } = props;
   return (
@@ -149,6 +158,7 @@ const GridMode = observer(function GridMode(props: {
         overflow: hidden;
       `}
     >
+      <ExternalChangeBanner store={store} />
       <div
         css={css`
           flex: 0 0 auto;
@@ -160,22 +170,7 @@ const GridMode = observer(function GridMode(props: {
           font-family: ${LAMETA_UI_FONT};
         `}
       >
-        <Select
-          disabled
-          size="small"
-          defaultValue="70%"
-          title={stubTitle(t("annotations.zoom", "Zoom"))}
-          sx={{
-            fontSize: 13,
-            background: "#fff",
-            "& .MuiSelect-select": { py: "2px", pl: "8px" },
-            "&.Mui-disabled": { opacity: 0.65 },
-          }}
-        >
-          <MenuItem value="70%" sx={{ fontSize: 13 }}>
-            70%
-          </MenuItem>
-        </Select>
+        <PlaybackSpeedSelect />
         {props.onSetupOralAnnotations && store.combinedWavExists === false && (
           <SetupOralAnnotationButton store={store} onSetup={props.onSetupOralAnnotations} />
         )}
@@ -201,14 +196,36 @@ const GridMode = observer(function GridMode(props: {
           <SegmentIcon />
           {t("annotations.editSegments", "Edit Segments")}
         </Button>
-        <StubButton feature={t("annotations.export", "Export")}>
-          {t("annotations.export", "Export")} ▾
-        </StubButton>
+        <ExportMenu store={store} runFfmpeg={props.runFfmpeg} />
         <StubButton feature={t("annotations.help", "Help")}>?</StubButton>
       </div>
 
       <TranscriptionGrid store={store} />
     </div>
+  );
+});
+
+/** SayMore's playback speed combo (10%–100%), remembered between sessions. */
+const PlaybackSpeedSelect = observer(function PlaybackSpeedSelect() {
+  return (
+    <Select
+      size="small"
+      value={gridPreferences.speedPercent}
+      onChange={(e) => gridPreferences.setSpeedPercent(Number(e.target.value))}
+      title={t("annotations.playbackSpeed", "Playback speed")}
+      inputProps={{ "aria-label": t("annotations.playbackSpeed", "Playback speed") }}
+      sx={{
+        fontSize: 13,
+        background: "#fff",
+        "& .MuiSelect-select": { py: "2px", pl: "8px" },
+      }}
+    >
+      {PLAYBACK_SPEED_CHOICES.map((percent) => (
+        <MenuItem key={percent} value={percent} sx={{ fontSize: 13 }}>
+          {t("annotations.speedPercent", "{percent}%", { percent })}
+        </MenuItem>
+      ))}
+    </Select>
   );
 });
 

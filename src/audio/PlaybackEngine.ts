@@ -27,6 +27,8 @@ export interface PlaySource {
 
 export interface PlaybackEngine {
   readonly isPlaying: boolean;
+  /** True between {@link pause} and {@link resume}; the paused range or sequence stays pending. */
+  readonly isPaused: boolean;
   /** Current playhead position in seconds. */
   readonly positionSec: number;
 
@@ -38,6 +40,12 @@ export interface PlaybackEngine {
 
   stop(): void;
 
+  /** Hold the current range or sequence at its position; no-op unless playing. */
+  pause(): void;
+
+  /** Continue a paused range or sequence from where it paused; no-op unless paused. */
+  resume(): void;
+
   setPlaybackRate(rate: number): void;
 
   dispose(): void;
@@ -45,7 +53,7 @@ export interface PlaybackEngine {
 
 /** Recorded call for assertions in specs. */
 export interface PlaybackCall {
-  kind: "play" | "playSequence" | "stop" | "setPlaybackRate";
+  kind: "play" | "playSequence" | "stop" | "pause" | "resume" | "setPlaybackRate";
   range?: TimeRange;
   sources?: PlaySource[];
   opts?: PlayOptions;
@@ -58,22 +66,40 @@ export interface PlaybackCall {
  */
 export class SpyPlaybackEngine implements PlaybackEngine {
   isPlaying = false;
+  isPaused = false;
   positionSec = 0;
   readonly calls: PlaybackCall[] = [];
 
   async play(range?: TimeRange, opts?: PlayOptions): Promise<void> {
     this.calls.push({ kind: "play", range, opts });
     this.isPlaying = true;
+    this.isPaused = false;
   }
 
   async playSequence(sources: PlaySource[], opts?: PlayOptions): Promise<void> {
     this.calls.push({ kind: "playSequence", sources, opts });
     this.isPlaying = true;
+    this.isPaused = false;
   }
 
   stop(): void {
     this.calls.push({ kind: "stop" });
     this.isPlaying = false;
+    this.isPaused = false;
+  }
+
+  pause(): void {
+    this.calls.push({ kind: "pause" });
+    if (!this.isPlaying) return;
+    this.isPlaying = false;
+    this.isPaused = true;
+  }
+
+  resume(): void {
+    this.calls.push({ kind: "resume" });
+    if (!this.isPaused) return;
+    this.isPlaying = true;
+    this.isPaused = false;
   }
 
   setPlaybackRate(rate: number): void {
@@ -135,6 +161,7 @@ export function createAudioElement(url: string): HTMLAudioElement {
  */
 export class MediaElementPlaybackEngine implements PlaybackEngine {
   isPlaying = false;
+  isPaused = false;
   positionSec = 0;
 
   private mainEl: HTMLMediaElement;
@@ -145,6 +172,14 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
   private stopRequested = false;
   /** Resolver/pauser for the range currently playing; invoked by stop(). */
   private finishActive: (() => void) | null = null;
+  /** Hold / continue the range currently playing; invoked by pause() / resume(). */
+  private pauseActive: (() => void) | null = null;
+  private resumeActive: (() => void) | null = null;
+  /**
+   * Bumped by every stop(). A sequence compares it after each clip, because a
+   * newer play() clears `stopRequested` before the older sequence resumes.
+   */
+  private stopCount = 0;
 
   constructor(source: string | HTMLMediaElement) {
     if (typeof source === "string") {
@@ -156,7 +191,15 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
     }
     makeAutoObservable<
       MediaElementPlaybackEngine,
-      "mainEl" | "ownsMainEl" | "extraEls" | "rafId" | "stopRequested" | "finishActive"
+      | "mainEl"
+      | "ownsMainEl"
+      | "extraEls"
+      | "rafId"
+      | "stopRequested"
+      | "finishActive"
+      | "pauseActive"
+      | "resumeActive"
+      | "stopCount"
     >(this, {
       mainEl: false,
       ownsMainEl: false,
@@ -164,6 +207,9 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
       rafId: false,
       stopRequested: false,
       finishActive: false,
+      pauseActive: false,
+      resumeActive: false,
+      stopCount: false,
     });
   }
 
@@ -177,6 +223,10 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
 
   private setPlayingState(v: boolean): void {
     this.isPlaying = v;
+  }
+
+  private setPausedState(v: boolean): void {
+    this.isPaused = v;
   }
 
   private setPosition(sec: number): void {
@@ -219,6 +269,8 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
       const finish = (): void => {
         this.cancelRaf();
         this.finishActive = null;
+        this.pauseActive = null;
+        this.resumeActive = null;
         try {
           el.pause();
         } catch {
@@ -269,6 +321,22 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
       };
 
       this.finishActive = finish;
+      this.pauseActive = (): void => {
+        this.cancelRaf();
+        try {
+          el.pause();
+        } catch {
+          /* element may already be detached */
+        }
+        this.setPlayingState(false);
+      };
+      this.resumeActive = (): void => {
+        this.setPlayingState(true);
+        const p = el.play();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+        this.cancelRaf();
+        this.rafId = scheduleFrame(tick);
+      };
       startOne();
     });
   }
@@ -281,20 +349,35 @@ export class MediaElementPlaybackEngine implements PlaybackEngine {
   async playSequence(sources: PlaySource[], opts?: PlayOptions): Promise<void> {
     this.stop();
     this.stopRequested = false;
+    const generation = this.stopCount;
     const rate = clampRate(opts?.rate);
     const loops = Math.max(1, Math.floor(opts?.maxLoops ?? 1));
     for (let loop = 0; loop < loops; loop++) {
       for (const src of sources) {
-        if (this.stopRequested) return;
+        if (this.stopRequested || generation !== this.stopCount) return;
         const el = src.url ? this.getExtraEl(src.url) : this.mainEl;
         await this.playRangeOnElement(el, src.range, rate, 1);
-        if (this.stopRequested) return;
+        if (this.stopRequested || generation !== this.stopCount) return;
       }
     }
   }
 
+  pause(): void {
+    if (!this.isPlaying || !this.pauseActive) return;
+    this.pauseActive();
+    this.setPausedState(true);
+  }
+
+  resume(): void {
+    if (!this.isPaused || !this.resumeActive) return;
+    this.setPausedState(false);
+    this.resumeActive();
+  }
+
   stop(): void {
+    this.stopCount++;
     this.stopRequested = true;
+    this.setPausedState(false);
     this.cancelRaf();
     const finish = this.finishActive;
     this.finishActive = null;

@@ -1,39 +1,44 @@
 /** @jsxImportSource @emotion/react */
 import { css } from "@emotion/react";
 import { observer } from "mobx-react-lite";
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
 import { t } from "../../l10n";
 import type { ProjectStore } from "../../state/ProjectStore";
-import { StubButton } from "../shell/stub";
+import { gridPreferences } from "../../state/GridPreferences";
+import { GridViewModel, type GridColumn } from "../../state/GridViewModel";
 import { LAMETA_UI_FONT } from "../../lametaTheme";
 
+/** Every row has this height, so the rows on screen follow from the scroll offset. */
+export const GRID_ROW_HEIGHT = 34;
+/** Rows rendered above and below the ones on screen. */
+const OVERSCAN_ROWS = 8;
+/** Viewport height assumed until the scroll container has been measured. */
+const UNMEASURED_VIEWPORT_PX = 900;
+const COLUMNS = "40px 44px minmax(0, 1fr) minmax(0, 1fr)";
+
 /**
- * First real slice of the SayMore transcription grid (reference screenshot 2):
- * one row per REAL segment read from the `.eaf`, with editable Transcription and
- * Free Translation cells that save straight back to the eaf (through the
- * DOM-preserving document store), and a real per-segment play button. The
- * per-column "Options ▾" menus are stubbed; full grid UX (autoplay, ignore
- * styling, fonts, keyboard nav) is out of scope for this first slice.
+ * The SayMore transcription grid (`TextAnnotationEditorGrid`): one row per
+ * segment of the `.eaf`, with Transcription and Free Translation cells that save
+ * straight back to the eaf. Behaviour (autoplay, keyboard movement, playback
+ * options, ignored rows) lives in {@link GridViewModel}; this view renders it.
  *
- * It's a plain HTML `<table>` with `table-layout: fixed` so header and body
- * columns are guaranteed to line up: two narrow fixed columns (row number, play)
- * and two equal-width text columns (Transcription, Free Translation).
- *
- * The table lives in a vertically-scrolling container that fills the height its
- * parent (the grid pane) gives it, and the header row is `position: sticky` so it
- * stays visible while the rows scroll under it — so the whole grid never overflows
- * the frame lameta hands the iframe.
+ * Only the rows near the scroll position are in the DOM: every row is
+ * {@link GRID_ROW_HEIGHT} tall and absolutely positioned, so a session with
+ * thousands of segments costs about the same as one with thirty. The header is
+ * sticky inside the same scroll container, so its columns line up with the rows'.
  */
 export const TranscriptionGrid = observer(function TranscriptionGrid(props: {
   store: ProjectStore;
 }) {
   const { store } = props;
-  const doc = store.document;
-  const segmenter = store.segmenter;
-  const [selectedRow, setSelectedRow] = useState(0);
+  const [vm] = useState(() => new GridViewModel(store, gridPreferences));
+  useEffect(() => vm.attach(), [vm]);
 
-  if (!doc)
+  if (!store.document)
     return (
       <p
         css={css`
@@ -43,126 +48,295 @@ export const TranscriptionGrid = observer(function TranscriptionGrid(props: {
         {t("harness.loading", "Loading…")}
       </p>
     );
+  return <GridBody store={store} vm={vm} />;
+});
 
-  const segments = doc.segments;
+const GridBody = observer(function GridBody(props: { store: ProjectStore; vm: GridViewModel }) {
+  const { store, vm } = props;
+  const doc = store.document!;
+  const segmentCount = doc.segments.length;
   // `rev` in the cell keys makes external changes (reload/undo) reset the inputs.
   const rev = doc.version;
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportPx, setViewportPx] = useState(0);
+  const [menu, setMenu] = useState<{ row: number; x: number; y: number } | undefined>();
+  const pendingFocus = useRef<{ row: number; column: GridColumn } | undefined>(undefined);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setViewportPx(el.clientHeight);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  function focusPending(): void {
+    const target = pendingFocus.current;
+    const el = scrollRef.current;
+    if (!target || !el) return;
+    const cell = el.querySelector<HTMLElement>(`[data-grid-cell="${target.row}:${target.column}"]`);
+    if (!cell) return;
+    pendingFocus.current = undefined;
+    if (document.activeElement === cell) vm.enterCell(target.row, target.column);
+    else cell.focus({ preventScroll: true });
+  }
+
+  // A focus request (Tab, arrows, un-ignore) may target a row that is scrolled
+  // out of the DOM: scroll it into view first, then focus it once it renders.
+  const request = vm.focusRequest;
+  useEffect(() => {
+    if (!request) return;
+    pendingFocus.current = { row: request.row, column: request.column };
+    const el = scrollRef.current;
+    if (el) {
+      const header = headerRef.current?.offsetHeight ?? 0;
+      const visible = (el.clientHeight || UNMEASURED_VIEWPORT_PX) - header;
+      const top = request.row * GRID_ROW_HEIGHT;
+      let next = el.scrollTop;
+      if (top < next) next = top;
+      else if (top + GRID_ROW_HEIGHT > next + visible) next = top + GRID_ROW_HEIGHT - visible;
+      if (next !== el.scrollTop) {
+        el.scrollTop = next;
+        setScrollTop(next);
+      }
+    }
+    focusPending();
+  }, [request]);
+  useLayoutEffect(() => focusPending());
+
+  const viewport = viewportPx || UNMEASURED_VIEWPORT_PX;
+  const first = Math.max(0, Math.floor(scrollTop / GRID_ROW_HEIGHT) - OVERSCAN_ROWS);
+  const last = Math.min(
+    segmentCount - 1,
+    Math.ceil((scrollTop + viewport) / GRID_ROW_HEIGHT) + OVERSCAN_ROWS,
+  );
+  const rows: number[] = [];
+  for (let i = first; i <= last; i++) rows.push(i);
+
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>): void {
+    if (e.key === "F2") {
+      e.preventDefault();
+      vm.togglePlayback();
+      return;
+    }
+    const cell = cellOf(e.target);
+    if (!cell) return;
+    if (e.key === "Tab") {
+      if (vm.tab(cell.row, cell.column, e.shiftKey)) e.preventDefault();
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      vm.moveVertical(cell.row, cell.column, e.key === "ArrowDown" ? 1 : -1);
+    }
+  }
+
   return (
     <div
+      ref={scrollRef}
+      data-testid="transcription-grid"
+      onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+      onKeyDown={onKeyDown}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) vm.leaveGrid();
+      }}
       css={css`
         flex: 1 1 auto;
         min-height: 0;
         overflow-y: auto;
         border: 1px solid #b7d59b;
+        font-family: ${LAMETA_UI_FONT};
+        font-size: 13px;
+        color: #37474f;
       `}
     >
-      <table
+      <div
+        ref={headerRef}
         css={css`
-          table-layout: fixed;
-          width: 100%;
-          border-collapse: collapse;
-          font-family: ${LAMETA_UI_FONT};
-          font-size: 13px;
-          color: #37474f;
+          position: sticky;
+          top: 0;
+          z-index: 1;
+          display: grid;
+          grid-template-columns: ${COLUMNS};
+          background: #f4f7f0;
+          color: #33691e;
+          font-weight: 600;
+          box-shadow: inset 0 -1px 0 #b7d59b;
         `}
       >
-        <colgroup>
-          <col css={{ width: 40 }} />
-          <col css={{ width: 44 }} />
-          <col />
-          <col />
-        </colgroup>
-        <thead>
-          <tr
-            css={css`
-              background: #f4f7f0;
-              border-bottom: 1px solid #b7d59b;
-              color: #33691e;
-            `}
-          >
-            <th css={headerCellCss} />
-            <th css={headerCellCss} />
-            <HeaderCell label={t("grid.transcription", "Transcription")} />
-            <HeaderCell label={t("grid.freeTranslation", "Free Translation")} />
-          </tr>
-        </thead>
-        <tbody>
-          {segments.length === 0 && (
-            <tr>
-              <td
-                colSpan={4}
-                css={css`
-                  padding: 10px;
-                  color: #78909c;
-                `}
-              >
-                {t("grid.empty", "No segments yet. Use “Edit Segments” to add boundaries.")}
-              </td>
-            </tr>
-          )}
+        <div css={headerCellCss} />
+        <div css={headerCellCss} />
+        <TranscriptionHeader vm={vm} />
+        <TranslationHeader vm={vm} />
+      </div>
 
-          {segments.map((seg, i) => {
-            const selected = i === selectedRow;
-            return (
-              <tr
-                key={i}
-                onClick={() => setSelectedRow(i)}
-                css={css`
-                  min-height: 34px;
-                  background: ${selected ? "#cfe4ff" : "#fff"};
-                  border-bottom: 1px solid #eceff1;
-                `}
-              >
-                <td css={dataCellCss}>{i + 1}</td>
-                <td
-                  css={[
-                    dataCellCss,
-                    css`
-                      text-align: center;
-                    `,
-                  ]}
-                >
-                  <IconButton
-                    title={t("grid.play", "Play this segment")}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      segmenter?.playSegment(i);
-                    }}
-                    disabled={!segmenter}
-                    sx={{
-                      width: 22,
-                      height: 22,
-                      p: 0,
-                      fontSize: 12,
-                      lineHeight: 1,
-                      border: "2px solid #2e7d32",
-                      color: "#2e7d32",
-                      background: "#fff",
-                      "&:hover": { background: "#eef6ee" },
-                      "&.Mui-disabled": { opacity: 0.5 },
-                    }}
-                  >
-                    ▶
-                  </IconButton>
-                </td>
-                <EditableCell
-                  key={`tr-${i}-${rev}`}
-                  initial={seg.transcription}
-                  placeholder={t("grid.transcriptionPlaceholder", "transcription…")}
-                  onCommit={(text) => void saveCell(store, i, "transcription", text)}
-                />
-                <EditableCell
-                  key={`ft-${i}-${rev}`}
-                  initial={seg.freeTranslation}
-                  placeholder={t("grid.freeTranslationPlaceholder", "free translation…")}
-                  onCommit={(text) => void saveCell(store, i, "freeTranslation", text)}
-                />
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      {segmentCount === 0 ? (
+        <div
+          css={css`
+            padding: 10px;
+            color: #78909c;
+          `}
+        >
+          {t("grid.empty", "No segments yet. Use “Edit Segments” to add boundaries.")}
+        </div>
+      ) : (
+        <div
+          css={css`
+            position: relative;
+          `}
+          style={{ height: segmentCount * GRID_ROW_HEIGHT }}
+        >
+          {rows.map((i) => (
+            <GridRow
+              key={i}
+              store={store}
+              vm={vm}
+              index={i}
+              rev={rev}
+              onContextMenu={(x, y) => {
+                vm.selectRow(i);
+                setMenu({ row: i, x, y });
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+      <Menu
+        open={menu !== undefined}
+        onClose={() => setMenu(undefined)}
+        anchorReference="anchorPosition"
+        anchorPosition={menu ? { top: menu.y, left: menu.x } : undefined}
+      >
+        <MenuItem
+          dense
+          role="menuitemcheckbox"
+          aria-checked={menu !== undefined && vm.isIgnored(menu.row)}
+          onClick={() => {
+            if (menu) vm.setIgnored(menu.row, !vm.isIgnored(menu.row));
+            setMenu(undefined);
+          }}
+        >
+          <CheckMark checked={menu !== undefined && vm.isIgnored(menu.row)} />
+          {t("grid.ignoredMenu", "Ignored")}
+        </MenuItem>
+      </Menu>
+    </div>
+  );
+});
+
+/** Row and column of the grid text cell that `target` is, if it is one. */
+function cellOf(target: EventTarget): { row: number; column: GridColumn } | undefined {
+  const id = (target as HTMLElement).dataset?.gridCell;
+  if (!id) return undefined;
+  const [row, column] = id.split(":");
+  return { row: Number(row), column: column as GridColumn };
+}
+
+const GridRow = observer(function GridRow(props: {
+  store: ProjectStore;
+  vm: GridViewModel;
+  index: number;
+  rev: number;
+  onContextMenu: (x: number, y: number) => void;
+}) {
+  const { store, vm, index: i, rev } = props;
+  const seg = store.document?.segments[i];
+  if (!seg) return null;
+  const ignored = vm.isIgnored(i);
+  const current = i === vm.currentRow;
+  // SayMore greys ignored rows except the current one.
+  const greyed = ignored && !current;
+  const playingHere = current && (vm.isPlaying || vm.isPaused);
+  return (
+    <div
+      data-testid={`grid-row-${i}`}
+      data-ignored={ignored || undefined}
+      data-current={current || undefined}
+      onClick={() => vm.selectRow(i)}
+      onContextMenu={(e) => {
+        if (!cellOf(e.target)) return;
+        e.preventDefault();
+        props.onContextMenu(e.clientX, e.clientY);
+      }}
+      style={{ top: i * GRID_ROW_HEIGHT }}
+      css={css`
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: ${GRID_ROW_HEIGHT}px;
+        box-sizing: border-box;
+        display: grid;
+        grid-template-columns: ${COLUMNS};
+        align-items: stretch;
+        border-bottom: 1px solid #eceff1;
+        background: ${current ? "#cfe4ff" : greyed ? "#e4e7e9" : "#fff"};
+        color: ${greyed ? "#9aa5ab" : "inherit"};
+      `}
+    >
+      <div css={dataCellCss}>{i + 1}</div>
+      <div
+        css={[
+          dataCellCss,
+          css`
+            justify-content: center;
+          `,
+        ]}
+      >
+        <IconButton
+          title={t("grid.play", "Play this segment")}
+          onClick={(e) => {
+            e.stopPropagation();
+            vm.togglePlayRow(i);
+          }}
+          disabled={!store.segmenter}
+          sx={{
+            width: 22,
+            height: 22,
+            p: 0,
+            fontSize: 12,
+            lineHeight: 1,
+            border: "2px solid #2e7d32",
+            color: "#2e7d32",
+            background: "#fff",
+            "&:hover": { background: "#eef6ee" },
+            "&.Mui-disabled": { opacity: 0.5 },
+          }}
+        >
+          {playingHere ? "■" : "▶"}
+        </IconButton>
+      </div>
+      {ignored ? (
+        <>
+          <IgnoredCell vm={vm} row={i} column="transcription" />
+          <IgnoredCell vm={vm} row={i} column="freeTranslation" />
+        </>
+      ) : (
+        <>
+          <EditableCell
+            key={`tr-${i}-${rev}`}
+            row={i}
+            column="transcription"
+            vm={vm}
+            initial={seg.transcription}
+            placeholder={t("grid.transcriptionPlaceholder", "transcription…")}
+            onCommit={(text) => void saveCell(store, i, "transcription", text)}
+          />
+          <EditableCell
+            key={`ft-${i}-${rev}`}
+            row={i}
+            column="freeTranslation"
+            vm={vm}
+            initial={seg.freeTranslation}
+            placeholder={t("grid.freeTranslationPlaceholder", "free translation…")}
+            onCommit={(text) => void saveCell(store, i, "freeTranslation", text)}
+          />
+        </>
+      )}
     </div>
   );
 });
@@ -185,90 +359,244 @@ async function saveCell(
 }
 
 const dataCellCss = css`
-  padding: 4px 8px;
-  vertical-align: middle;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
   border-right: 1px solid #eceff1;
   overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: nowrap;
 `;
 
-// Sticky so the header stays pinned while the body scrolls. The background and
-// bottom box-shadow live on the cells (not the row) because a sticky cell must
-// paint its own background, and collapsed row borders don't stick reliably.
 const headerCellCss = css`
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: #f4f7f0;
   padding: 6px 8px;
-  text-align: left;
-  font-weight: 600;
   border-right: 1px solid #dce7d0;
-  box-shadow: inset 0 -1px 0 #b7d59b;
+  min-width: 0;
 `;
 
-function HeaderCell(props: { label: string }) {
+const TranscriptionHeader = observer(function TranscriptionHeader(props: { vm: GridViewModel }) {
+  const { vm } = props;
   return (
-    <th css={headerCellCss}>
-      <div
-        css={css`
+    <ColumnHeader
+      label={t("grid.transcription", "Transcription")}
+      menuTestId="transcription-options"
+      onOpen={() => vm.stop()}
+      selected={vm.prefs.transcriptionPlayback}
+      onSelect={(value) => vm.setTranscriptionPlayback(value)}
+      options={[
+        { value: "source", label: t("grid.playback.source", "Playback Source Recording") },
+        {
+          value: "careful",
+          label: t("grid.playback.careful", "Playback Careful Speech Recording"),
+        },
+        { value: "both", label: t("grid.playback.both", "Playback Both Recordings") },
+      ]}
+    />
+  );
+});
+
+const TranslationHeader = observer(function TranslationHeader(props: { vm: GridViewModel }) {
+  const { vm } = props;
+  return (
+    <ColumnHeader
+      label={t("grid.freeTranslation", "Free Translation")}
+      menuTestId="translation-options"
+      onOpen={() => vm.stop()}
+      selected={vm.prefs.translationPlayback}
+      onSelect={(value) => vm.setTranslationPlayback(value)}
+      options={[
+        { value: "source", label: t("grid.playback.source", "Playback Source Recording") },
+        {
+          value: "translation",
+          label: t("grid.playback.translation", "Playback Oral Translation Recording"),
+        },
+        { value: "both", label: t("grid.playback.both", "Playback Both Recordings") },
+      ]}
+    />
+  );
+});
+
+/** A column header with SayMore's "Options ▾" menu of playback choices. */
+function ColumnHeader<V extends string>(props: {
+  label: string;
+  menuTestId: string;
+  options: { value: V; label: string }[];
+  selected: V;
+  onSelect: (value: V) => void;
+  onOpen: () => void;
+}) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  return (
+    <div
+      css={[
+        headerCellCss,
+        css`
           display: flex;
           align-items: center;
           justify-content: space-between;
           gap: 8px;
-        `}
+        `,
+      ]}
+    >
+      <span>{props.label}</span>
+      <Button
+        variant="outlined"
+        aria-haspopup="menu"
+        data-testid={props.menuTestId}
+        onClick={(e) => {
+          props.onOpen();
+          setAnchor(e.currentTarget);
+        }}
+        sx={{
+          textTransform: "none",
+          fontFamily: "inherit",
+          fontSize: 13,
+          py: "1px",
+          px: "8px",
+          minWidth: 0,
+          color: "#37474f",
+          background: "#fff",
+          borderColor: "#90a4ae",
+          "&:hover": { borderColor: "#607d8b", background: "#fff" },
+        }}
       >
-        <span>{props.label}</span>
-        <StubButton feature={props.label}>{t("grid.options", "Options")} ▾</StubButton>
-      </div>
-    </th>
+        {t("grid.options", "Options")} ▾
+      </Button>
+      <Menu
+        open={anchor !== null}
+        anchorEl={anchor}
+        onClose={() => setAnchor(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+      >
+        {props.options.map((o) => (
+          <MenuItem
+            key={o.value}
+            dense
+            role="menuitemradio"
+            aria-checked={o.value === props.selected}
+            onClick={() => {
+              setAnchor(null);
+              props.onSelect(o.value);
+            }}
+          >
+            <CheckMark checked={o.value === props.selected} />
+            {o.label}
+          </MenuItem>
+        ))}
+      </Menu>
+    </div>
+  );
+}
+
+function CheckMark(props: { checked: boolean }) {
+  return (
+    <span
+      aria-hidden
+      css={css`
+        display: inline-block;
+        width: 20px;
+      `}
+    >
+      {props.checked ? "✓" : ""}
+    </span>
+  );
+}
+
+/** Props both kinds of text cell share: focusing a cell makes it the grid's current cell. */
+function cellFocusProps(vm: GridViewModel, row: number, column: GridColumn) {
+  return {
+    "data-grid-cell": `${row}:${column}`,
+    onFocus: () => vm.enterCell(row, column),
+    onClick: (e: { stopPropagation(): void }) => e.stopPropagation(),
+  };
+}
+
+/** The text cell of an ignored row: "Ignored", centred, not editable, and still
+ * focusable so Tab and the context menu reach it as they do in SayMore. */
+function IgnoredCell(props: { vm: GridViewModel; row: number; column: GridColumn }) {
+  return (
+    <div
+      tabIndex={0}
+      role="textbox"
+      aria-readonly
+      {...cellFocusProps(props.vm, props.row, props.column)}
+      css={css`
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-right: 1px solid #eceff1;
+        outline: none;
+        &:focus {
+          background: #f5f5f5;
+        }
+      `}
+    >
+      {t("grid.ignoredIndicator", "Ignored")}
+    </div>
   );
 }
 
 /**
  * A grid text cell that edits locally and commits on blur / Enter (so we don't
- * rewrite the eaf on every keystroke). Escape reverts.
+ * rewrite the eaf on every keystroke). Escape reverts. A cell that leaves the
+ * DOM (scrolled away, row ignored) while holding an uncommitted edit commits it.
  */
 function EditableCell(props: {
+  vm: GridViewModel;
+  row: number;
+  column: GridColumn;
   initial: string;
   placeholder: string;
   onCommit: (text: string) => void;
 }) {
   const [value, setValue] = useState(props.initial);
+  // The value on disk (or on its way there); read by blur and unmount, which can
+  // run before React re-renders with the newest `value`.
+  const committed = useRef(props.initial);
+  const latest = useRef({ value, onCommit: props.onCommit });
+  latest.current = { value, onCommit: props.onCommit };
 
-  function commit(): void {
-    if (value !== props.initial) props.onCommit(value);
+  function commit(text: string): void {
+    if (text === committed.current) return;
+    committed.current = text;
+    latest.current.onCommit(text);
   }
 
+  useEffect(() => () => commit(latest.current.value), []);
+
   return (
-    <td
+    <div
       css={css`
-        padding: 0;
-        vertical-align: middle;
         border-right: 1px solid #eceff1;
+        min-width: 0;
       `}
     >
       <input
         value={value}
         placeholder={props.placeholder}
-        onChange={(e) => setValue(e.target.value)}
-        onClick={(e) => e.stopPropagation()}
-        onBlur={commit}
+        {...cellFocusProps(props.vm, props.row, props.column)}
+        onChange={(e) => {
+          setValue(e.target.value);
+          latest.current.value = e.target.value;
+        }}
+        onBlur={() => commit(latest.current.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
             (e.target as HTMLInputElement).blur();
           } else if (e.key === "Escape") {
-            setValue(props.initial);
+            setValue(committed.current);
+            latest.current.value = committed.current;
             (e.target as HTMLInputElement).blur();
           }
         }}
         css={css`
           box-sizing: border-box;
           width: 100%;
+          height: 100%;
           border: none;
           background: transparent;
-          padding: 8px;
+          padding: 0 8px;
           font: inherit;
           color: #263238;
           outline: none;
@@ -277,6 +605,6 @@ function EditableCell(props: {
           }
         `}
       />
-    </td>
+    </div>
   );
 }

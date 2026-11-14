@@ -248,3 +248,86 @@ describe("SegmenterViewModel oral-file journal on save", () => {
     }
   });
 });
+
+describe("SegmenterViewModel: renamed WAVs still match their segments after an eaf reload", () => {
+  async function reopen(adapter: InMemoryAdapter) {
+    const document = new AnnotationDocumentStore();
+    document.init("m.wav", 10, await adapter.readText("m.wav.annotations.eaf"));
+    const oralIndex = await OralAnnotationIndex.build(adapter, "m.wav");
+    return { document, oralIndex };
+  }
+
+  async function annotatedSegmenter() {
+    const { document, playback, adapter } = makeVm({ withOral: true });
+    const oralIndex = await OralAnnotationIndex.build(adapter, "m.wav");
+    const vm = new SegmenterViewModel({ document, playback, adapter, oralIndex });
+    vm.setCursor(0.75);
+    vm.addBoundaryAtCursor();
+    vm.setCursor(1.25);
+    vm.addBoundaryAtCursor();
+    vm.setCursor(5);
+    vm.addBoundaryAtCursor();
+    vm.selectBoundaryAt(1.25);
+    return { vm, adapter, oralIndex };
+  }
+
+  it("boundaries added at an unrounded playhead are held at whole ms", () => {
+    const { document, playback } = makeVm();
+    const vm = new SegmenterViewModel({ document, playback });
+    try {
+      playback.isPlaying = true;
+      playback.positionSec = 1.0060531;
+      expect(vm.addBoundaryAtCursor()).toBe(BoundaryResult.Success);
+      expect(vm.boundaries).toEqual([1.006]);
+      expect(vm.selectedBoundaryIndex).toBe(0);
+    } finally {
+      vm.dispose();
+    }
+  });
+
+  it("a drag to an unrounded position renames the WAV to the whole-ms name the eaf reloads to", async () => {
+    vi.useFakeTimers();
+    const { vm, adapter } = await annotatedSegmenter();
+    try {
+      vm.moveSelectedBoundaryTo(1.4123456);
+      expect(vm.segments[1].range.end).toBe(1.412);
+      await vi.advanceTimersByTimeAsync(600);
+      expect(await adapter.exists("m.wav_Annotations/0.75_to_1.412_Careful.wav")).toBe(true);
+      expect(await adapter.exists("m.wav_Annotations/0.75_to_1.25_Careful.wav")).toBe(false);
+
+      const reopened = await reopen(adapter);
+      const seg = reopened.document.tiers.segments[1];
+      expect(seg.range).toEqual({ start: 0.75, end: 1.412 });
+      expect(reopened.oralIndex.hasAnyForRange(seg.range)).toBe(true);
+      expect(await reopened.oralIndex.readSegmentWav(seg.range, "Careful")).toEqual(
+        new Uint8Array([9]),
+      );
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vm.dispose();
+    }
+  });
+
+  it("many 5ms nudges leave a WAV name that the reloaded eaf still matches", async () => {
+    vi.useFakeTimers();
+    const { vm, adapter } = await annotatedSegmenter();
+    try {
+      for (let i = 0; i < 37; i++) vm.nudgeSelected(5); // 1.25 → 1.435
+      expect(vm.segments[1].range.end).toBe(1.435);
+      await vi.advanceTimersByTimeAsync(1200);
+      expect(await adapter.exists("m.wav_Annotations/0.75_to_1.435_Careful.wav")).toBe(true);
+
+      const reopened = await reopen(adapter);
+      const seg = reopened.document.tiers.segments[1];
+      expect(reopened.oralIndex.hasAnyForRange(seg.range)).toBe(true);
+      expect((await adapter.list()).filter((n) => n.includes("_Annotations/"))).toEqual([
+        "m.wav_Annotations/0.75_to_1.435_Careful.wav",
+      ]);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vm.dispose();
+    }
+  });
+});

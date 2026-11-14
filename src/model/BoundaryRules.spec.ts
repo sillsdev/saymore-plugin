@@ -193,3 +193,63 @@ describe("trimSegmentsToDuration", () => {
     ]);
   });
 });
+
+describe("boundaries are held at whole milliseconds (the eaf's TIME_VALUE precision)", () => {
+  const isWholeMs = (sec: number) => sec === Math.round(sec * 1000) / 1000;
+  const allWholeMs = (segs: readonly AnnotationSegment[]) =>
+    segs.every((x) => isWholeMs(x.range.start) && isWholeMs(x.range.end));
+
+  it("insertBoundary rounds an unrounded position (append and split)", () => {
+    const appended = insertBoundary([], 1.0060531);
+    expect(appended.result).toBe(BoundaryResult.Success);
+    expect(ranges(appended.segments)).toEqual([[0, 1.006]]);
+
+    const split = insertBoundary([s(0, 5)], 2.3456789);
+    expect(split.result).toBe(BoundaryResult.Success);
+    expect(ranges(split.segments)).toEqual([
+      [0, 2.346],
+      [2.346, 5],
+    ]);
+  });
+
+  it("moveBoundary rounds the new end on both sides of the boundary", () => {
+    const moved = moveBoundary([s(0, 1), s(1, 3)], 0, 1.4123456);
+    expect(moved.result).toBe(BoundaryResult.Success);
+    expect(ranges(moved.segments)).toEqual([
+      [0, 1.412],
+      [1.412, 3],
+    ]);
+  });
+
+  it("repeated nudges land on exact whole-ms values (no float drift)", () => {
+    let segs: readonly AnnotationSegment[] = [s(0, 1.25), s(1.25, 5)];
+    for (let i = 0; i < 101; i++) segs = nudgeBoundary(segs, 0, 5, 10).segments;
+    expect(segs[0].range.end).toBe(1.755);
+    expect(segs[1].range.start).toBe(1.755);
+    expect(allWholeMs(segs)).toBe(true);
+  });
+
+  it("end-of-file rules and trimming round an unrounded media duration", () => {
+    const extended = addFinalSegmentIfAlmostComplete([s(0, 9.8)], 9.9876543);
+    expect(ranges(extended)).toEqual([[0, 9.988]]);
+    const appended = addFinalSegmentIfAlmostComplete([s(0, 8)], 9.9876543);
+    expect(ranges(appended)).toEqual([
+      [0, 8],
+      [8, 9.988],
+    ]);
+    const trimmed = trimSegmentsToDuration([s(0, 5), s(5, 12)], 9.9876543);
+    expect(ranges(trimmed)).toEqual([
+      [0, 5],
+      [5, 9.988],
+    ]);
+  });
+
+  it("deleteSegment keeps whole-ms boundaries", () => {
+    const { segments } = deleteSegment([s(0, 1.006), s(1.006, 2.5), s(2.5, 4)], 1);
+    expect(ranges(segments)).toEqual([
+      [0, 1.006],
+      [1.006, 4],
+    ]);
+    expect(allWholeMs(segments)).toBe(true);
+  });
+});

@@ -54,6 +54,23 @@ describe("getSilenceBreaks", () => {
     expect(breaks[0]).toBeCloseTo(3.05, 2); // middle of the interior pause
   });
 
+  it("always ends on the media end, as SayMore's AutoSegmenter does, so no end-of-recording rule follows it", () => {
+    // SayMore's AutoSegmenter.GetNaturalBreaks yields TotalTime as its last break and
+    // AutoSegmenter.Run saves without AddFinalSegmentIfAlmostComplete (that rule runs only on
+    // OK of the manual segmenter dialog), so the last segment never stops short of the end.
+    const patterns: number[][] = [
+      [...run(1, 2000), ...run(0, 500), ...run(1, 2000), ...run(0, 3000)], // trailing silence
+      [...run(1, 2000), ...run(0, 500), ...run(1, 2000), ...run(0, 200)], // short trailing gap
+      [...run(1, 2000), ...run(0, 500), ...run(1, 2000), ...run(0, 500), ...run(1, 100)],
+      run(1, 23000), // forced splits
+    ];
+    for (const amp of patterns) {
+      const env = envFromAmp(amp);
+      const breaks = getSilenceBreaks(env);
+      expect(breaks[breaks.length - 1]).toBe(env.durationSec);
+    }
+  });
+
   it("force-splits a segment longer than the max length", () => {
     // 15s of continuous speech, max 10s → split into 2 near the midpoint.
     const breaks = getSilenceBreaks(envFromAmp(run(1, 15000)));

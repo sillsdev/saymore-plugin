@@ -1,7 +1,7 @@
 import type { FileSystemAdapter } from "../fs/FileSystemAdapter";
 import { annotationsEafName } from "../fs/SessionFolder";
 import type { AnnotationSegment } from "../model/AnnotationSegment";
-import { makeTimeRange } from "../model/TimeRange";
+import { makeTimeRange, roundToWholeMs } from "../model/TimeRange";
 import { createEafFromTemplate, serializeEaf } from "../model/eaf/EafDocument";
 import { eafTemplateXml } from "../model/eaf/eafTemplate";
 import { DEFAULT_AUTO_SEGMENTER_SETTINGS, type AutoSegmenterSettings } from "./autoSegmenter";
@@ -16,14 +16,16 @@ import type { Envelope } from "./EnvelopeCache";
  * `TimeTier.AppendSegment` (each break is the END of a segment that starts at
  * the previous break; the first starts at 0). Text tiers are left empty.
  *
- * Degenerate boundaries (not strictly greater than the running start) are
+ * Boundaries are rounded to whole ms (the eaf's TIME_VALUE precision). Degenerate
+ * boundaries (not strictly greater than the running start once rounded) are
  * skipped defensively; the ported algorithm never emits them, but a bespoke
  * one might.
  */
 export function segmentsFromBoundaries(boundaries: readonly number[]): AnnotationSegment[] {
   const segments: AnnotationSegment[] = [];
   let start = 0;
-  for (const end of boundaries) {
+  for (const boundary of boundaries) {
+    const end = roundToWholeMs(boundary);
     if (end <= start) continue;
     segments.push({ range: makeTimeRange(start, end), transcription: "", freeTranslation: "" });
     start = end;

@@ -36,3 +36,14 @@ export function secondsToMs(seconds: number): number {
 export function msToSeconds(ms: number): number {
   return ms / 1000;
 }
+
+/**
+ * `seconds` rounded to the nearest whole millisecond: exactly the value that a
+ * reload of the eaf's integer-ms TIME_VALUE produces. Every segment boundary in
+ * the model holds such a value, as SayMore's do (net48 `TimeSpan.FromSeconds`
+ * rounds to whole ms), because oral-annotation WAV names are formatted from the
+ * boundaries and must still match them after the eaf is reloaded.
+ */
+export function roundToWholeMs(seconds: number): number {
+  return msToSeconds(secondsToMs(seconds));
+}

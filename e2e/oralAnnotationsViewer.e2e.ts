@@ -19,26 +19,6 @@ import {
  * `<media>.oralAnnotations.wav`): plumbing (dedeb38, 18af508) + UI
  * (4e3e96f, f8967a0, 22a5ffc, 8bc123a) are both landed, `oralann-*` testids
  * all present.
- *
- * The Regenerate/staleness tests below are `test.fixme`-gated on a newly
- * found bug (not this file's): oral-annotation WAVs are named from the
- * segment's LIVE (unrounded) boundary float at record time (e.g.
- * `1.006053`), but the `.eaf` persists boundaries rounded to whole
- * milliseconds (`TIME_VALUE="1006"` → 1.006 on reload). `csFloatToString`
- * rounds to 7 significant figures, not ms, so `1.006053` and `1.006` produce
- * different tokens — `OralAnnotationIndex.getFilesForRange()` then fails to
- * match the segment to its own recording after any reload/reopen.
- * `regenerateCombinedOralWav` reads segment content via
- * `oralIndex.readSegmentWav()` (src/state/recorder/OralAnnotationsViewerModel.ts
- * `runRegenerate()`), so it silently finds no Careful/Translation content for
- * any segment and bails via "skipped-no-annotations" — no exception, no
- * console output, `isRegenerating` never even visibly flips. Verified by
- * dumping the eaf's `TIME_VALUE`s alongside the `_Annotations/` filename: they
- * don't match. Fix belongs to whoever owns segment→WAV naming
- * (src/state/recorder/RecorderViewModel.ts's `commitRecording`/
- * `commitNewSegmentRecording`, or `OralAnnotationFiles.ts`'s comparison) —
- * round the boundary to ms before naming, or compare by ms instead of
- * `csFloatToString`. Flip both tests to `test` once fixed.
  */
 
 /**
@@ -97,14 +77,17 @@ test.describe("Oral Annotations viewer", () => {
     await page.locator('[data-testid="oralann-play"]').click();
     await expect(page.locator('[data-testid="oralann-stop"]')).toBeEnabled();
     const transformAtStart = await cursor.evaluate((el) => el.style.transform);
-    await page.waitForTimeout(600);
-    const transformAfterPlaying = await cursor.evaluate((el) => el.style.transform);
-    expect(transformAfterPlaying).not.toBe(transformAtStart);
+    // The <audio> element starts asynchronously after play(); wait for the cursor to move.
+    await expect
+      .poll(() => cursor.evaluate((el) => el.style.transform), { timeout: 15_000 })
+      .not.toBe(transformAtStart);
 
-    const readoutWhilePlaying = parseReadout(
-      (await page.locator('[data-testid="oralann-time-readout"]').textContent()) ?? "",
-    );
-    expect(readoutWhilePlaying.pos).toBeGreaterThan(0);
+    const readout = page.locator('[data-testid="oralann-time-readout"]');
+    await expect
+      .poll(async () => parseReadout((await readout.textContent()) ?? "").pos, {
+        timeout: 15_000,
+      })
+      .toBeGreaterThan(0);
 
     await page.locator('[data-testid="oralann-stop"]').click();
     await expect(page.locator('[data-testid="oralann-play"]')).toBeEnabled();
@@ -133,14 +116,15 @@ test.describe("Oral Annotations viewer", () => {
     await expect(page.locator('[data-testid="oralann-cursor"]')).toBeVisible();
 
     await page.locator('[data-testid="oralann-play"]').click();
-    await page.waitForTimeout(500);
-    const resumed = parseReadout(
-      (await page.locator('[data-testid="oralann-time-readout"]').textContent()) ?? "",
-    );
-    expect(resumed.pos).toBeGreaterThan(seeked.pos); // resumed from the seek point, not 0
+    const readout = page.locator('[data-testid="oralann-time-readout"]');
+    await expect
+      .poll(async () => parseReadout((await readout.textContent()) ?? "").pos, {
+        timeout: 15_000,
+      })
+      .toBeGreaterThan(seeked.pos); // resumed from the seek point, not 0
   });
 
-  test.fixme("Regenerate rewrites the combined file (mtime changes)", async ({ page }) => {
+  test("Regenerate rewrites the combined file (mtime changes)", async ({ page }) => {
     await openViewerAfterOneRecording(page);
 
     const before = await readIdbFileModifiedMs(page, COMBINED_WAV_NAME);
@@ -153,9 +137,10 @@ test.describe("Oral Annotations viewer", () => {
     expect(after).not.toBe(before);
   });
 
-  test.fixme("staleness: a new recording after the combined file exists triggers auto-regen on reopen", async ({
+  test("staleness: a new recording after the combined file exists triggers auto-regen on reopen", async ({
     page,
   }) => {
+    test.setTimeout(90_000); // two recordings plus a regen; a loaded machine needs more than 30s
     await openViewerAfterOneRecording(page);
     const v1Bytes = await readIdbFileBytes(page, COMBINED_WAV_NAME);
 
@@ -166,7 +151,13 @@ test.describe("Oral Annotations viewer", () => {
     await tabChip(page, "careful-speech").click();
     await expect(page.getByRole("button", { name: "Speak" })).toBeVisible();
     await page.waitForTimeout(500); // MicRecorder.open() settle
-    await holdKey(page, " ", 2200); // segment 1 is ~1.5s
+    // Listening arms Speak only if playback reached the segment end (~1.5s) before release;
+    // under load playback starts late, so hold again until Speak is armed.
+    const speak = page.getByRole("button", { name: "Speak" });
+    await expect(async () => {
+      await holdKey(page, " ", 2200);
+      await expect(speak).toBeEnabled({ timeout: 500 });
+    }).toPass({ timeout: 40_000 });
     await holdKey(page, " ", RECORD_HOLD_MS);
     await expect(page.locator('[data-testid="cell-play-1"]')).toBeVisible();
 

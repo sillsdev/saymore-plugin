@@ -1,5 +1,5 @@
 import type { AnnotationSegment } from "./AnnotationSegment";
-import { makeTimeRange } from "./TimeRange";
+import { makeTimeRange, roundToWholeMs } from "./TimeRange";
 import { IGNORE_MARKER, isIgnoredText } from "./IgnoreMarkers";
 import { MIN_SEGMENT_LENGTH_MS } from "./SayMoreConstants";
 
@@ -9,6 +9,10 @@ import { MIN_SEGMENT_LENGTH_MS } from "./SayMoreConstants";
  * across the three tiers, bundled here in one `AnnotationSegment[]`. Every
  * function is pure: it returns a NEW array on success and the original array
  * (plus a non-Success result code) on rejection.
+ *
+ * Every boundary these functions produce is rounded to a whole millisecond
+ * ({@link roundToWholeMs}), so the model holds the same values that a reload of
+ * the eaf gives, and oral-annotation WAV names formatted from them stay valid.
  */
 
 /** Mirrors SayMore `BoundaryModificationResult` (TimeTier.cs:13-20). */
@@ -50,7 +54,11 @@ function seg(
   transcription = "",
   freeTranslation = "",
 ): AnnotationSegment {
-  return { range: makeTimeRange(startSec, endSec), transcription, freeTranslation };
+  return {
+    range: makeTimeRange(roundToWholeMs(startSec), roundToWholeMs(endSec)),
+    transcription,
+    freeTranslation,
+  };
 }
 
 /** Index of the segment whose END equals `boundarySec` (ms-granular), or -1. */
@@ -69,8 +77,9 @@ export function indexOfSegmentEndingAt(
  */
 export function insertBoundary(
   segments: readonly AnnotationSegment[],
-  boundarySec: number,
+  boundaryPositionSec: number,
 ): BoundaryEdit {
+  const boundarySec = roundToWholeMs(boundaryPositionSec);
   if (boundarySec <= 0) {
     return { result: BoundaryResult.SegmentWillBeTooShort, segments };
   }
@@ -117,11 +126,12 @@ export function insertBoundary(
 export function moveBoundary(
   segments: readonly AnnotationSegment[],
   index: number,
-  newEndSec: number,
+  newEndPositionSec: number,
 ): BoundaryEdit {
   if (index < 0 || index >= segments.length) {
     return { result: BoundaryResult.SegmentNotFound, segments };
   }
+  const newEndSec = roundToWholeMs(newEndPositionSec);
   const cur = segments[index];
   if (!isAcceptableSegmentLength(cur.range.start, newEndSec)) {
     return { result: BoundaryResult.SegmentWillBeTooShort, segments };
@@ -171,7 +181,7 @@ export function nudgeBoundary(
   if (index < 0 || index >= segments.length) {
     return { result: BoundaryResult.SegmentNotFound, segments };
   }
-  const newEnd = segments[index].range.end + deltaMs / 1000;
+  const newEnd = roundToWholeMs(segments[index].range.end + deltaMs / 1000);
   if (newEnd <= 0 || newEnd > durationSec) {
     return { result: BoundaryResult.NextSegmentWillBeTooShort, segments };
   }

@@ -280,6 +280,16 @@ export const App = observer(function App() {
               message={connectingMessage(connected, store.loadPhase)}
             />
           )
+        ) : startMediaName ? (
+          // Before the document: "Use Careful Speech Tool" opens the session before lameta
+          // selects the new file, and State A must stay up to show an error from that step.
+          // Every other way to open the session inline clears startMediaName first.
+          <StartAnnotatingView
+            onStart={handleStartAnnotating}
+            onAutoSegment={handleAutoSegment}
+            onCarefulSpeech={handleCarefulSpeech}
+            onUseFile={handleUseFile}
+          />
         ) : store.document ? (
           <AnnotationsPaneView store={store} onSetupOralAnnotations={handleSetupOralAnnotations} />
         ) : convertMediaName ? (
@@ -287,13 +297,6 @@ export const App = observer(function App() {
             sourceName={convertMediaName}
             outputName={standardAudioName(convertMediaName)}
             onConvert={handleConvert}
-          />
-        ) : startMediaName ? (
-          <StartAnnotatingView
-            onStart={handleStartAnnotating}
-            onAutoSegment={handleAutoSegment}
-            onCarefulSpeech={handleCarefulSpeech}
-            onUseFile={handleUseFile}
           />
         ) : (
           <PluginConnecting

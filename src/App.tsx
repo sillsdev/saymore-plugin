@@ -217,8 +217,9 @@ export const App = observer(function App() {
   // State A "Use Careful Speech Tool": SayMore opens the Careful Speech recorder on an
   // annotation file that has no segments yet. Write the empty `.eaf`, load the session,
   // create the combined `<media>.oralAnnotations.wav` and select it, so the host opens its
-  // Careful Speech tab (the recorder allows zero segments). When `selectFile` resolves
-  // false (lameta cannot find the file), open the recorder inline.
+  // Careful Speech tab (the recorder allows zero segments). The recorder appears only on
+  // that tab, so when `selectFile` resolves false (lameta cannot find the file), State A
+  // shows the error instead.
   async function handleCarefulSpeech(): Promise<void> {
     const conn = connRef.current;
     if (!conn) throw new Error("Not connected to lameta.");
@@ -229,9 +230,9 @@ export const App = observer(function App() {
     }
     await store.openSession(conn.adapter);
     const combinedRel = await store.setupOralAnnotations();
-    if (await conn.api.selectFile(combinedRel)) return;
-    setStartMediaName(undefined);
-    store.openRecorder("Careful");
+    if (!(await conn.api.selectFile(combinedRel))) {
+      throw new Error(`lameta could not select ${combinedRel}.`);
+    }
   }
 
   // State A "Copy an existing ELAN file" / "Import an Audacity Label file": build the

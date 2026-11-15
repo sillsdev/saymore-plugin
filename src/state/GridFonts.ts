@@ -112,14 +112,6 @@ export class GridFonts {
     });
   }
 
-  get transcription(): GridFont | undefined {
-    return this.fonts.transcription;
-  }
-
-  get freeTranslation(): GridFont | undefined {
-    return this.fonts.freeTranslation;
-  }
-
   font(column: GridColumn): GridFont | undefined {
     return this.fonts[column];
   }

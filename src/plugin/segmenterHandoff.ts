@@ -30,6 +30,26 @@ export function cancelSegmenterRequest(store: Storage | undefined = storage()): 
   }
 }
 
+/**
+ * Ask lameta to select `eafRelPath` with a request to open the segmenter there. Resolves to
+ * what `selectFile` resolved; when that is false, or `selectFile` rejects, the request is
+ * dropped so that a later visit to the eaf opens its grid.
+ */
+export async function selectEafForSegmenter(
+  eafRelPath: string,
+  selectFile: (relPath: string) => Promise<boolean>,
+  store: Storage | undefined = storage(),
+): Promise<boolean> {
+  requestSegmenterOn(eafRelPath, store);
+  let selected = false;
+  try {
+    selected = await selectFile(eafRelPath);
+  } finally {
+    if (!selected) cancelSegmenterRequest(store);
+  }
+  return selected;
+}
+
 /** True once, when a request for exactly this eaf is pending; the request is then spent. */
 export function takeSegmenterRequest(
   eafRelPath: string,

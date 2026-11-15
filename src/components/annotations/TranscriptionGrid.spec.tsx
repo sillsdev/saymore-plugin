@@ -9,7 +9,7 @@ import { makeTimeRange } from "../../model/TimeRange";
 import { AnnotationDocumentStore } from "../../state/AnnotationDocumentStore";
 import { gridPreferences } from "../../state/GridPreferences";
 import { gridFonts } from "../../state/GridFonts";
-import { memoryStorage } from "../../state/memorySettingsStorage";
+import { memoryStorage } from "../../state/testSettingsStorage";
 import { AUTOPLAY_DELAY_MS } from "../../state/GridViewModel";
 import type { ProjectStore } from "../../state/ProjectStore";
 import { SegmenterViewModel } from "../../state/SegmenterViewModel";
@@ -235,7 +235,7 @@ describe("TranscriptionGrid: column fonts", () => {
     await act(async () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "OK" }));
     });
-    expect(gridFonts.freeTranslation).toEqual({ family: "Andika", sizePt: 10 });
+    expect(gridFonts.font("freeTranslation")).toEqual({ family: "Andika", sizePt: 10 });
     expect(await storage.read()).toEqual({
       version: 1,
       freeTranslationFont: { family: "Andika", sizePt: 10 },

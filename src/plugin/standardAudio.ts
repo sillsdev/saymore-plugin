@@ -6,18 +6,13 @@ import { START_TAB_ID } from "./tabProvider";
 /**
  * Select `<base>_StandardAudio.wav` in lameta on its "Start Annotating" tab. lameta
  * would otherwise open the WAV on its own Audio tab, because Start Annotating does
- * not claim the default. Resolves false when lameta cannot select the file or has
- * no `selectFile`.
+ * not claim the default. Resolves false when lameta cannot select the file.
  */
-export async function selectStandardAudio(
+export function selectStandardAudio(
   api: Pick<PluginHostApiV1, "selectFile">,
   wavName: string,
 ): Promise<boolean> {
-  try {
-    return await api.selectFile(wavName, { tabId: START_TAB_ID });
-  } catch {
-    return false;
-  }
+  return api.selectFile(wavName, { tabId: START_TAB_ID });
 }
 
 /**

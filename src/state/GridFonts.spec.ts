@@ -8,7 +8,7 @@ import {
   parseGridFont,
   type SettingsStorage,
 } from "./GridFonts";
-import { memoryStorage } from "./memorySettingsStorage";
+import { memoryStorage } from "./testSettingsStorage";
 
 describe("parseGridFont", () => {
   it("keeps family, size and the styles that are on", () => {
@@ -85,7 +85,7 @@ describe("GridFonts", () => {
       other: { x: 1 },
       freeTranslationFont: { family: "Gentium Plus", sizePt: 10, bold: true },
     });
-    expect(fonts.transcription).toBeUndefined();
+    expect(fonts.font("transcription")).toBeUndefined();
   });
 
   it("starts from nothing when there are no settings, or they are not an object", async () => {
@@ -93,7 +93,7 @@ describe("GridFonts", () => {
       const { storage, current } = memoryStorage(stored);
       const fonts = new GridFonts();
       await fonts.useStorage(storage);
-      expect(fonts.transcription).toBeUndefined();
+      expect(fonts.font("transcription")).toBeUndefined();
       await fonts.setFont("freeTranslation", { family: "Andika", sizePt: 12 });
       expect(current()).toEqual({
         version: 1,
@@ -107,9 +107,9 @@ describe("GridFonts", () => {
     const { storage, writes } = memoryStorage(newer);
     const fonts = new GridFonts();
     await fonts.useStorage(storage);
-    expect(fonts.transcription).toEqual({ family: "Andika", sizePt: 12 });
+    expect(fonts.font("transcription")).toEqual({ family: "Andika", sizePt: 12 });
     await fonts.setFont("transcription", { family: "Charis SIL", sizePt: 20 });
-    expect(fonts.transcription).toEqual({ family: "Charis SIL", sizePt: 20 });
+    expect(fonts.font("transcription")).toEqual({ family: "Charis SIL", sizePt: 20 });
     expect(writes).toEqual([]);
   });
 
@@ -128,7 +128,7 @@ describe("GridFonts", () => {
     await fonts.useStorage(fast);
     release({ version: 1, transcriptionFont: { family: "Old", sizePt: 9 } });
     await first;
-    expect(fonts.transcription?.family).toBe("Andika");
+    expect(fonts.font("transcription")?.family).toBe("Andika");
   });
 
   it("an unreadable store leaves the default fonts", async () => {
@@ -140,7 +140,7 @@ describe("GridFonts", () => {
     };
     const fonts = new GridFonts();
     await fonts.useStorage(failing);
-    expect(fonts.transcription).toBeUndefined();
+    expect(fonts.font("transcription")).toBeUndefined();
   });
 });
 

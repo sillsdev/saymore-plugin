@@ -61,7 +61,10 @@ const GridBody = observer(function GridBody(props: { store: ProjectStore; vm: Gr
   const segmentCount = doc.segments.length;
   // `rev` in the cell keys makes external changes (reload/undo) reset the inputs.
   const rev = doc.version;
-  const rowHeight = gridRowHeight([gridFonts.transcription, gridFonts.freeTranslation]);
+  const rowHeight = gridRowHeight([
+    gridFonts.font("transcription"),
+    gridFonts.font("freeTranslation"),
+  ]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);

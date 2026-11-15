@@ -1,13 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PluginHostApiV1 } from "./PluginApiTypes";
-import { convertToStandardAudio, selectStandardAudio } from "./standardAudio";
+import { convertToStandardAudio } from "./standardAudio";
 import { computeTabs, START_TAB_ID } from "./tabProvider";
 
-function fakeApi(selectResult: boolean | Error) {
-  const selectFile = vi.fn(async (_relPath: string, _options?: { tabId?: string }) => {
-    if (selectResult instanceof Error) throw selectResult;
-    return selectResult;
-  });
+function fakeApi(selectResult: boolean) {
+  const selectFile = vi.fn(async (_relPath: string, _options?: { tabId?: string }) => selectResult);
   const run = vi.fn(async (spec: { onProgress?: (fraction: number) => void }) => {
     spec.onProgress?.(1);
   });
@@ -41,10 +38,5 @@ describe("standard audio conversion", () => {
     await expect(convertToStandardAudio(api, "a.mp4", () => {})).rejects.toThrow(
       "a_StandardAudio.wav",
     );
-  });
-
-  it("selecting an existing WAV reports false on a host that rejects", async () => {
-    const { api } = fakeApi(new Error("no selectFile"));
-    await expect(selectStandardAudio(api, "a_StandardAudio.wav")).resolves.toBe(false);
   });
 });

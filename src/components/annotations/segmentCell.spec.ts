@@ -1,30 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { makeTimeRange } from "../../model/TimeRange";
 import { DEFAULT_ROW_HEIGHT, gridFontStyle, gridRowHeight, quoteFamily } from "./gridFontStyle";
-import {
-  playbackFillFraction,
-  sayMoreRangeText,
-  sayMoreTimeString,
-  segmentTooltip,
-} from "./segmentCell";
-
-describe("sayMoreTimeString (MediaPlayerViewModel.MakeTimeString)", () => {
-  it("formats as SayMore does", () => {
-    expect(sayMoreTimeString(0)).toBe("00.0");
-    expect(sayMoreTimeString(2.1)).toBe("02.1");
-    expect(sayMoreTimeString(2)).toBe("02.0");
-    expect(sayMoreTimeString(2.04)).toBe("02.0");
-    expect(sayMoreTimeString(2.05)).toBe("02.1");
-    expect(sayMoreTimeString(65.3)).toBe("01:05.3");
-    expect(sayMoreTimeString(3725.5)).toBe("01:02:05.5");
-    expect(sayMoreTimeString(59.96)).toBe("01:00.0");
-  });
-});
+import { playbackFillFraction, segmentTooltip } from "./segmentCell";
 
 describe("the first cell's tooltip (AudioWaveFormCell.SetToolTipText)", () => {
   const range = makeTimeRange(2.1, 4.6);
   it("is the time range on other rows", () => {
-    expect(sayMoreRangeText(range)).toBe("02.1 - 04.6");
     expect(segmentTooltip(range, false)).toBe("02.1 - 04.6");
   });
   it("adds how to play on the current row", () => {

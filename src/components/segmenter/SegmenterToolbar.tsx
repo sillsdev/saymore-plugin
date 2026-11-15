@@ -7,15 +7,10 @@ import Select from "@mui/material/Select";
 import { t } from "../../l10n";
 import type { SegmenterViewModel } from "../../state/SegmenterViewModel";
 import { ZOOM_PRESETS } from "../../model/SayMoreConstants";
+import { sayMoreTimeDisplay } from "../../model/sayMoreTime";
 
 /** SayMore's zoom combo choices (SegmenterDlgBase.cs), extended down to the 10% minimum. */
 const ZOOM_CHOICES = ZOOM_PRESETS;
-
-/** Match the original readout ("00.0 / 02.9"): seconds with one decimal. */
-function formatTime(sec: number): string {
-  if (!Number.isFinite(sec) || sec < 0) sec = 0;
-  return sec.toFixed(1).padStart(4, "0");
-}
 
 // ── Icons (approximating SayMore's toolstrip glyphs) ────────────────────────
 const PlayIcon = () => (
@@ -145,7 +140,7 @@ export const SegmenterToolbar = observer(function SegmenterToolbar(props: {
               font-variant-numeric: tabular-nums;
             `}
           >
-            {formatTime(current)} / {formatTime(vm.durationSec)}
+            {sayMoreTimeDisplay(current, vm.durationSec)}
           </span>
         </div>
         <label

@@ -17,7 +17,7 @@ import {
   seekPositionSec,
   splitOralAnnotationsChannels,
 } from "./oralAnnotationsLayout";
-import { formatPosTotal } from "./timeReadout";
+import { sayMoreTimeDisplay } from "../../model/sayMoreTime";
 import { RefreshIcon } from "./RefreshIcon";
 
 const ROW_HEIGHT = 56;
@@ -303,7 +303,7 @@ export const OralAnnotationsViewerView = observer(function OralAnnotationsViewer
           border-top: 1px solid #b7d59b;
         `}
       >
-        {formatPosTotal(positionSec, viewer.durationSec)}
+        {sayMoreTimeDisplay(positionSec, viewer.durationSec)}
       </div>
     </div>
   );

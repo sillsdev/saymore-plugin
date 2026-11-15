@@ -9,7 +9,6 @@ import { t } from "../../l10n";
 import type { ProjectStore } from "../../state/ProjectStore";
 import { TranscriptionGrid } from "./TranscriptionGrid";
 import { ExportMenu } from "./ExportMenu";
-import type { RunFfmpeg } from "../../export/audioExport";
 import { ExternalChangeBanner } from "./ExternalChangeBanner";
 import { ManualSegmenterView } from "../segmenter/ManualSegmenterView";
 import { StubButton } from "../shell/stub";
@@ -41,8 +40,6 @@ export const AnnotationsPaneView = observer(function AnnotationsPaneView(props: 
    * host simulator passes a bounded height so the grid sits inside its page.
    */
   height?: string;
-  /** The host's ffmpeg for the audio exports' mp3 step; absent in the harness. */
-  runFfmpeg?: RunFfmpeg;
 }) {
   const { store } = props;
   switch (store.annotationsView) {
@@ -55,7 +52,6 @@ export const AnnotationsPaneView = observer(function AnnotationsPaneView(props: 
           store={store}
           onSetupOralAnnotations={props.onSetupOralAnnotations}
           height={props.height ?? "100vh"}
-          runFfmpeg={props.runFfmpeg}
         />
       );
   }
@@ -146,7 +142,6 @@ const GridMode = observer(function GridMode(props: {
   store: ProjectStore;
   onSetupOralAnnotations?: () => Promise<void>;
   height: string;
-  runFfmpeg?: RunFfmpeg;
 }) {
   const { store } = props;
   return (
@@ -196,7 +191,7 @@ const GridMode = observer(function GridMode(props: {
           <SegmentIcon />
           {t("annotations.editSegments", "Edit Segments")}
         </Button>
-        <ExportMenu store={store} runFfmpeg={props.runFfmpeg} />
+        <ExportMenu store={store} />
         <StubButton feature={t("annotations.help", "Help")}>?</StubButton>
       </div>
 

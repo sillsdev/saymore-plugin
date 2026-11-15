@@ -4,6 +4,7 @@ import { observer } from "mobx-react-lite";
 import { useEffect, useRef, useState } from "react";
 import CircularProgress from "@mui/material/CircularProgress";
 import { t } from "../../l10n";
+import { sayMoreTimeString } from "../../model/sayMoreTime";
 import type { RecorderViewModel } from "../../state/recorder/RecorderViewModel";
 import type { Viewport } from "../waveform/WaveformSurface";
 import { PlaybackCursor } from "../waveform/PlaybackCursor";
@@ -120,7 +121,7 @@ function RecordingIndicator() {
       <span>{t("recorder.recording", "Recording…")}</span>
       <span>
         {t("recorder.recordingLength", "Length: {seconds}", {
-          seconds: elapsed.toFixed(1).padStart(4, "0"),
+          seconds: sayMoreTimeString(elapsed),
         })}
       </span>
     </div>

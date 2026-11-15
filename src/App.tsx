@@ -21,12 +21,9 @@ import { connectToLameta, serveTabProvider } from "./plugin/lametaPluginClient";
 import { resolveSaymoreTabs } from "./plugin/tabProvider";
 import { setHostApi } from "./plugin/hostApi";
 import { convertToStandardAudio, selectStandardAudio } from "./plugin/standardAudio";
-import { gridFonts, hostSettingsStorage } from "./state/GridFonts";
-import {
-  cancelSegmenterRequest,
-  requestSegmenterOn,
-  takeSegmenterRequest,
-} from "./plugin/segmenterHandoff";
+import { gridFonts, hostSettingsStorage, localSettingsStorage } from "./state/GridFonts";
+import { browserStorage } from "./state/GridPreferences";
+import { selectEafForSegmenter, takeSegmenterRequest } from "./plugin/segmenterHandoff";
 import { annotationsEafName, standardAudioName } from "./fs/SessionFolder";
 import { createEafFromTemplate, serializeEaf } from "./model/eaf/EafDocument";
 import { eafTemplateXml } from "./model/eaf/eafTemplate";
@@ -73,7 +70,11 @@ export const App = observer(function App() {
   const connRef = useRef<PluginConnection | undefined>(undefined);
 
   useEffect(() => {
-    if (!embedded) return;
+    if (!embedded) {
+      // The harness keeps the project settings in localStorage.
+      void gridFonts.useStorage(localSettingsStorage(browserStorage()));
+      return;
+    }
     let cancelled = false;
     void (async () => {
       try {
@@ -154,8 +155,8 @@ export const App = observer(function App() {
   // the annotation template) beside the media, then reveal the annotations UI. Preferred
   // path (B): ask the host to select the new `.eaf` — it rescans, selects it, and recreates
   // this iframe on the eaf's default "Transcription & Translation" tab (so the code after
-  // `selectFile` never runs). Fallback (A): on a host without `selectFile`, reveal it
-  // inline on this tab.
+  // `selectFile` never runs). When `selectFile` resolves false (lameta cannot find the
+  // file), segment inline on this tab.
   async function handleStartAnnotating(): Promise<void> {
     const conn = connRef.current;
     if (!conn) throw new Error("Not connected to lameta.");
@@ -166,17 +167,7 @@ export const App = observer(function App() {
       const xml = serializeEaf(createEafFromTemplate(eafTemplateXml, conn.selectedFileName));
       await conn.adapter.writeText(eafRel, xml);
     }
-    // selectFile resolves false when lameta cannot find the file; treat that like a host
-    // without selectFile.
-    let selected = false;
-    requestSegmenterOn(eafRel);
-    try {
-      selected = await conn.api.selectFile(eafRel);
-    } catch {
-      /* host without selectFile */
-    }
-    if (selected) return;
-    cancelSegmenterRequest();
+    if (await selectEafForSegmenter(eafRel, (rel) => conn.api.selectFile(rel))) return;
     setStartMediaName(undefined);
     await store.openSession(conn.adapter);
     // "Manually segment" is an explicit choice to segment, so open the
@@ -196,25 +187,20 @@ export const App = observer(function App() {
   // Grid toolbar "Setup Oral Annotation": create the combined
   // `<media>.oralAnnotations.wav` (source-only until recordings exist), then ask
   // the host to select it — its Careful Speech / Oral Translation / Combined
-  // Audio tabs appear and the default (Careful Speech) opens. On a host without
-  // `selectFile` the button simply disappears (the file now exists); the user
-  // selects it in lameta's file list.
+  // Audio tabs appear and the default (Careful Speech) opens.
   async function handleSetupOralAnnotations(): Promise<void> {
     const conn = connRef.current;
     if (!conn) throw new Error("Not connected to lameta.");
     const combinedRel = await store.setupOralAnnotations();
-    try {
-      await conn.api.selectFile(combinedRel);
-    } catch {
-      /* feature-detect fallback: stay on the grid */
-    }
+    await conn.api.selectFile(combinedRel);
   }
 
   // State A button: run the auto-segmenter over the audio and write the segments into a
   // SayMore-compatible `<media>.annotations.eaf` BEFORE revealing the annotations UI. The
   // eaf must be complete before `selectFile` because that recreates the iframe on the
-  // eaf's default tab (code after it never runs). Fallback (host without `selectFile`):
-  // open the annotations UI inline on this tab, reading back the eaf we just wrote.
+  // eaf's default tab (code after it never runs). When `selectFile` resolves false
+  // (lameta cannot find the file), open the annotations UI inline on this tab, reading
+  // back the eaf we just wrote.
   async function handleAutoSegment(onProgress: (fraction: number) => void): Promise<void> {
     const conn = connRef.current;
     if (!conn) throw new Error("Not connected to lameta.");
@@ -223,13 +209,7 @@ export const App = observer(function App() {
       mediaFileName: conn.selectedFileName,
       onProgress,
     });
-    let selected = false;
-    try {
-      selected = await conn.api.selectFile(eafRel);
-    } catch {
-      /* host without selectFile */
-    }
-    if (selected) return;
+    if (await conn.api.selectFile(eafRel)) return;
     setStartMediaName(undefined);
     await store.openSession(conn.adapter);
   }
@@ -237,8 +217,9 @@ export const App = observer(function App() {
   // State A "Use Careful Speech Tool": SayMore opens the Careful Speech recorder on an
   // annotation file that has no segments yet. Write the empty `.eaf`, load the session,
   // create the combined `<media>.oralAnnotations.wav` and select it, so the host opens its
-  // Careful Speech tab (the recorder allows zero segments). Without `selectFile`, open the
-  // recorder inline.
+  // Careful Speech tab (the recorder allows zero segments). The recorder appears only on
+  // that tab, so when `selectFile` resolves false (lameta cannot find the file), State A
+  // shows the error instead.
   async function handleCarefulSpeech(): Promise<void> {
     const conn = connRef.current;
     if (!conn) throw new Error("Not connected to lameta.");
@@ -249,16 +230,14 @@ export const App = observer(function App() {
     }
     await store.openSession(conn.adapter);
     const combinedRel = await store.setupOralAnnotations();
-    try {
-      await conn.api.selectFile(combinedRel);
-    } catch {
-      setStartMediaName(undefined);
-      store.openRecorder("Careful");
+    if (!(await conn.api.selectFile(combinedRel))) {
+      throw new Error(`lameta could not select ${combinedRel}.`);
     }
   }
 
   // State A "Copy an existing ELAN file" / "Import an Audacity Label file": build the
-  // `.eaf` from the chosen file's text, then reveal it like the other methods.
+  // `.eaf` from the chosen file's text, then reveal it like the other methods. When
+  // `selectFile` resolves false (lameta cannot find the file), open it inline.
   async function handleUseFile(fileText: string, tier: LabelTextTier): Promise<void> {
     const conn = connRef.current;
     if (!conn) throw new Error("Not connected to lameta.");
@@ -269,12 +248,9 @@ export const App = observer(function App() {
       tier,
       getMediaDurationSec: () => mediaDurationSec(conn),
     });
-    try {
-      await conn.api.selectFile(eafRel);
-    } catch {
-      setStartMediaName(undefined);
-      await store.openSession(conn.adapter);
-    }
+    if (await conn.api.selectFile(eafRel)) return;
+    setStartMediaName(undefined);
+    await store.openSession(conn.adapter);
   }
 
   // The hidden provider instance has no UI — it only answers getTabs.
@@ -304,26 +280,23 @@ export const App = observer(function App() {
               message={connectingMessage(connected, store.loadPhase)}
             />
           )
-        ) : store.document ? (
-          <AnnotationsPaneView
-            store={store}
-            onSetupOralAnnotations={handleSetupOralAnnotations}
-            runFfmpeg={
-              connRef.current ? (spec) => connRef.current!.api.ffmpeg.run(spec) : undefined
-            }
-          />
-        ) : convertMediaName ? (
-          <FileConversionView
-            sourceName={convertMediaName}
-            outputName={standardAudioName(convertMediaName)}
-            onConvert={handleConvert}
-          />
         ) : startMediaName ? (
+          // Before the document: "Use Careful Speech Tool" opens the session before lameta
+          // selects the new file, and State A must stay up to show an error from that step.
+          // Every other way to open the session inline clears startMediaName first.
           <StartAnnotatingView
             onStart={handleStartAnnotating}
             onAutoSegment={handleAutoSegment}
             onCarefulSpeech={handleCarefulSpeech}
             onUseFile={handleUseFile}
+          />
+        ) : store.document ? (
+          <AnnotationsPaneView store={store} onSetupOralAnnotations={handleSetupOralAnnotations} />
+        ) : convertMediaName ? (
+          <FileConversionView
+            sourceName={convertMediaName}
+            outputName={standardAudioName(convertMediaName)}
+            onConvert={handleConvert}
           />
         ) : (
           <PluginConnecting

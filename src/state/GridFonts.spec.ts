@@ -8,21 +8,7 @@ import {
   parseGridFont,
   type SettingsStorage,
 } from "./GridFonts";
-
-function memoryStorage(initial: unknown = null) {
-  let value: unknown = initial;
-  const writes: unknown[] = [];
-  const storage: SettingsStorage = {
-    read: async () => value,
-    write: async (v) => {
-      // lameta refuses `undefined` anywhere in the value, so a JSON round trip must not change it.
-      expect(JSON.parse(JSON.stringify(v))).toEqual(v);
-      value = v;
-      writes.push(v);
-    },
-  };
-  return { storage, writes, current: () => value };
-}
+import { memoryStorage } from "./testSettingsStorage";
 
 describe("parseGridFont", () => {
   it("keeps family, size and the styles that are on", () => {
@@ -46,7 +32,7 @@ describe("GridFonts", () => {
       transcriptionFont: { family: "Doulos SIL", sizePt: 12 },
       freeTranslationFont: { family: "Andika", sizePt: 11, italic: true },
     });
-    const fonts = new GridFonts(storage);
+    const fonts = new GridFonts();
     await fonts.useStorage(storage);
     expect(fonts.font("transcription")).toEqual({ family: "Doulos SIL", sizePt: 12 });
     expect(fonts.font("freeTranslation")).toEqual({ family: "Andika", sizePt: 11, italic: true });
@@ -66,7 +52,7 @@ describe("GridFonts", () => {
       },
       write: storage.write,
     };
-    const fonts = new GridFonts(memoryStorage().storage);
+    const fonts = new GridFonts();
     const reading = fonts.useStorage(slow);
     const choosing = fonts.setFont("transcription", { family: "Charis SIL", sizePt: 14 });
     release();
@@ -83,7 +69,7 @@ describe("GridFonts", () => {
 
   it("writes a small versioned value and keeps keys it does not know", async () => {
     const { storage, current } = memoryStorage({ version: 1, other: { x: 1 } });
-    const fonts = new GridFonts(storage);
+    const fonts = new GridFonts();
     await fonts.useStorage(storage);
     await fonts.setFont("transcription", { family: "Charis SIL", sizePt: 16 });
     await fonts.setFont("freeTranslation", { family: "Gentium Plus", sizePt: 10, bold: true });
@@ -99,15 +85,15 @@ describe("GridFonts", () => {
       other: { x: 1 },
       freeTranslationFont: { family: "Gentium Plus", sizePt: 10, bold: true },
     });
-    expect(fonts.transcription).toBeUndefined();
+    expect(fonts.font("transcription")).toBeUndefined();
   });
 
   it("starts from nothing when there are no settings, or they are not an object", async () => {
     for (const stored of [null, [1, 2], "x"]) {
       const { storage, current } = memoryStorage(stored);
-      const fonts = new GridFonts(storage);
+      const fonts = new GridFonts();
       await fonts.useStorage(storage);
-      expect(fonts.transcription).toBeUndefined();
+      expect(fonts.font("transcription")).toBeUndefined();
       await fonts.setFont("freeTranslation", { family: "Andika", sizePt: 12 });
       expect(current()).toEqual({
         version: 1,
@@ -119,11 +105,11 @@ describe("GridFonts", () => {
   it("never overwrites settings from a newer version of the plugin", async () => {
     const newer = { version: 2, transcriptionFont: { family: "Andika", sizePt: 12 }, more: true };
     const { storage, writes } = memoryStorage(newer);
-    const fonts = new GridFonts(storage);
+    const fonts = new GridFonts();
     await fonts.useStorage(storage);
-    expect(fonts.transcription).toEqual({ family: "Andika", sizePt: 12 });
+    expect(fonts.font("transcription")).toEqual({ family: "Andika", sizePt: 12 });
     await fonts.setFont("transcription", { family: "Charis SIL", sizePt: 20 });
-    expect(fonts.transcription).toEqual({ family: "Charis SIL", sizePt: 20 });
+    expect(fonts.font("transcription")).toEqual({ family: "Charis SIL", sizePt: 20 });
     expect(writes).toEqual([]);
   });
 
@@ -137,12 +123,12 @@ describe("GridFonts", () => {
       version: 1,
       transcriptionFont: { family: "Andika", sizePt: 12 },
     });
-    const fonts = new GridFonts(slow);
+    const fonts = new GridFonts();
     const first = fonts.useStorage(slow);
     await fonts.useStorage(fast);
     release({ version: 1, transcriptionFont: { family: "Old", sizePt: 9 } });
     await first;
-    expect(fonts.transcription?.family).toBe("Andika");
+    expect(fonts.font("transcription")?.family).toBe("Andika");
   });
 
   it("an unreadable store leaves the default fonts", async () => {
@@ -152,9 +138,9 @@ describe("GridFonts", () => {
       },
       write: async () => {},
     };
-    const fonts = new GridFonts(failing);
+    const fonts = new GridFonts();
     await fonts.useStorage(failing);
-    expect(fonts.transcription).toBeUndefined();
+    expect(fonts.font("transcription")).toBeUndefined();
   });
 });
 

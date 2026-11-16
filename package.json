@@ -17,7 +17,8 @@
     "package:win": "node scripts/package-plugin.mjs --target win",
     "package:mac": "node scripts/package-plugin.mjs --target mac",
     "e2e": "playwright test",
-    "e2e:ui": "playwright test --ui"
+    "e2e:ui": "playwright test --ui",
+    "e2e:lameta": "playwright test -c playwright.lameta.config.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.13.5",
